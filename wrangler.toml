@@ -1,0 +1,10 @@
+name = "researchroomies"
+main = "src/index.ts"
+compatibility_date = "2025-08-26"
+
+[observability]
+enabled = true
+
+[assets]
+directory = "./public/"
+binding = "ASSETS"
