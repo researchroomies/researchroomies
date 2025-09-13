@@ -1,0 +1,2 @@
+# Frontend Static Asset Templates
+

@@ -1,16 +1,16 @@
-CREATE TABLE countries (
+CREATE TABLE IF NOT EXISTS countries (
     id INTEGER NOT NULL PRIMARY KEY,
     name TEXT NOT NULL
 );
 
-CREATE TABLE states (
+CREATE TABLE IF NOT EXISTS states (
     id INTEGER NOT NULL PRIMARY KEY,
     country_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     FOREIGN KEY (country_id) REFERENCES countries(id)
 );
 
-CREATE TABLE cities (
+CREATE TABLE IF NOT EXISTS cities (
     id INTEGER NOT NULL PRIMARY KEY,
     country_id INTEGER,
     state_id INTEGER,
@@ -19,13 +19,13 @@ CREATE TABLE cities (
     FOREIGN KEY (state_id) REFERENCES states(id)
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id INTEGER NOT NULL PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
     created_at INTEGER
 );
 
-CREATE TABLE conferences (
+CREATE TABLE IF NOT EXISTS conferences (
     id INTEGER NOT NULL PRIMARY KEY,
     user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE conferences (
     FOREIGN KEY (city_id) REFERENCES cities(id)
 );
 
-CREATE TABLE posts (
+CREATE TABLE IF NOT EXISTS posts (
     id INTEGER NOT NULL PRIMARY KEY,
     user_id INTEGER NOT NULL,
     conference_id INTEGER NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE posts (
     FOREIGN KEY (conference_id) REFERENCES conferences(id)
 );
 
-CREATE TABLE flags (
+CREATE TABLE IF NOT EXISTS flags (
     id INTEGER NOT NULL PRIMARY KEY,
     post_id INTEGER NOT NULL,
     reason TEXT,
@@ -61,12 +61,12 @@ CREATE TABLE flags (
     FOREIGN KEY (post_id) REFERENCES posts(id)
 );
 
-CREATE TABLE tags (
+CREATE TABLE IF NOT EXISTS tags (
     slug TEXT NOT NULL PRIMARY KEY,
     name TEXT NOT NULL
 );
 
-CREATE TABLE conference_tags (
+CREATE TABLE IF NOT EXISTS conference_tags (
     tag_slug TEXT NOT NULL,
     conference_id INTEGER NOT NULL,
     PRIMARY KEY (tag_slug, conference_id),
@@ -74,7 +74,7 @@ CREATE TABLE conference_tags (
     FOREIGN KEY (conference_id) REFERENCES conferences(id)
 );
 
-CREATE TABLE message (
+CREATE TABLE IF NOT EXISTS message (
     post_id NUMBER,
     sender_email STRING,
     recipient_email STRING,
@@ -82,7 +82,7 @@ CREATE TABLE message (
     timestamp NUMBER
 );
 
-CREATE TABLE Message_Object_Storage (
+CREATE TABLE IF NOT EXISTS Message_Object_Storage (
     message_logs BUCKET,
     post_id_inquirer_email_object_key STRING,
     message_content_schema STRING,
