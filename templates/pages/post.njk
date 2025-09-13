@@ -1,0 +1,21 @@
+{% extends "base.njk" %}
+{% block title %}Post - ResearchRoomies{% endblock %}
+{% block content %}
+<article>
+  <h2>{{ post.title }}</h2>
+  <p>{{ post.description }}</p>
+  <p><strong>Conference:</strong> <a href="/conference/{{ post.conference_slug }}">{{ post.conference_name }}</a></p>
+</article>
+<section>
+  <h3>Send an Inquiry</h3>
+  <form action="/api/message/send" method="POST">
+    <input type="hidden" name="post_id" value="{{ post.id }}" />
+    <label>Your Email</label>
+    <input type="email" name="email" required />
+    <label>Message</label>
+    <textarea name="content" rows="5" required></textarea>
+    <div class="cf-turnstile" data-sitekey="YOUR_SITE_KEY_PLACEHOLDER"></div>
+    <button type="submit">Send</button>
+  </form>
+</section>
+{% endblock %}

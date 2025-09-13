@@ -1,0 +1,24 @@
+{% extends "base.njk" %}
+{% block title %}Search - ResearchRoomies{% endblock %}
+{% block content %}
+<h2>Search Listings</h2>
+<form id="search-form">
+  <input type="text" name="conference" placeholder="Conference name" />
+  <select name="tag">
+    <option value="">Subject</option>
+    {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+  </select>
+  <input type="date" name="start" />
+  <input type="date" name="end" />
+  <button type="submit">Search</button>
+</form>
+<div id="results">
+  {% for post in posts %}
+  <div class="post-card">
+    <h3><a href="/post/{{ post.id }}">{{ post.title }}</a></h3>
+    <p>{{ post.description | truncate(160) }}</p>
+    <small>{{ post.conference_name }} – {{ post.date }}</small>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

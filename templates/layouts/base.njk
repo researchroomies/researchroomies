@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}ResearchRoomies{% endblock %}</title>
+  <link rel="stylesheet" href="/style/styles.css" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header>
+    <div class="logo-nav">
+      <h1><a href="/">ResearchRoomies</a></h1>
+      <nav>
+        <a href="/search" class="nav-link">Search</a>
+        <a href="/create" class="nav-link">Create Post</a>
+        {% for tag in tags %}<a href="/subject/{{ tag.slug }}" class="nav-subject">{{ tag.name }}</a>{% endfor %}
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <div class="fat-footer">
+      <p>&copy; {{ year }} ResearchRoomies. All rights reserved.</p>
+      <a href="/about">About</a> | <a href="/terms">Terms</a> | <a href="/privacy">Privacy</a>
+    </div>
+  </footer>
+</body>
+</html>

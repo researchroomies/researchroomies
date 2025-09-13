@@ -1,0 +1,23 @@
+{% extends "base.njk" %}
+{% block title %}404 - ResearchRoomies{% endblock %}
+{% block content %}
+<div class="home-layout">
+  <aside class="sidebar">
+    <form action="/search" method="get">
+      <input type="text" name="conference" placeholder="Search conferences" />
+      <select name="tag">
+        <option value="">Subject</option>
+        {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+      </select>
+      <input type="date" name="start" />
+      <input type="date" name="end" />
+      <button type="submit">Search</button>
+    </form>
+  </aside>
+  <section class="main">
+    <h2>404 - Page Not Found</h1>
+    <p>Sorry, the page you are looking for does not exist.</p>
+    <a href="/">Return to Home</a>
+  </section>
+</div>
+{% endblock %}

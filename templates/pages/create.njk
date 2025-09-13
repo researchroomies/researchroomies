@@ -1,0 +1,39 @@
+{% extends "base.njk" %}
+{% block title %}Create a Post – ResearchRoomies{% endblock %}
+{% block content %}
+<h2>Create a Post</h2>
+<form action="/api/post" method="POST">
+  <label>Email</label>
+  <input type="email" name="email" required />
+
+  <label>Conference</label>
+  <select name="conference_id">
+    {% for conf in conferences %}
+      <option value="{{ conf.id }}">{{ conf.name }}</option>
+    {% endfor %}
+    <option value="new">Create New Conference</option>
+  </select>
+
+  <div id="new-conference-fields">
+    <label>New Conference Name</label>
+    <input type="text" name="new_conf_name" />
+    <label>Start Date</label>
+    <input type="date" name="new_conf_start" />
+    <label>End Date</label>
+    <input type="date" name="new_conf_end" />
+    <label>Location</label>
+    <input type="text" name="new_conf_location" />
+    <label>Tags</label>
+    <input type="text" name="new_conf_tags" placeholder="comma separated" />
+  </div>
+
+  <label>Post Title</label>
+  <input type="text" name="title" required />
+
+  <label>Description</label>
+  <textarea name="description" rows="6" required></textarea>
+
+  <div class="cf-turnstile" data-sitekey="YOUR_SITE_KEY_PLACEHOLDER"></div>
+  <button type="submit">Submit</button>
+</form>
+{% endblock %}

@@ -36,6 +36,7 @@ CREATE TABLE conferences (
     stop_time INTEGER NOT NULL,
     description TEXT,
     created_at INTEGER,
+    is_featured INTEGER DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (city_id) REFERENCES cities(id)
 );

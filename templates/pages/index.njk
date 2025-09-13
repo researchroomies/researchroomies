@@ -1,0 +1,31 @@
+{% extends "base.njk" %}
+{% block title %}Home - ResearchRoomies{% endblock %}
+{% block content %}
+<div class="home-layout">
+  <aside class="sidebar">
+    <form action="/search" method="get">
+      <input type="text" name="conference" placeholder="Search conferences" />
+      <select name="tag">
+        <option value="">Subject</option>
+        {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+      </select>
+      <input type="date" name="start" />
+      <input type="date" name="end" />
+      <button type="submit">Search</button>
+    </form>
+  </aside>
+  <section class="main">
+    <h2>Featured Conferences</h2>
+    <ul>
+      {% for conf in featured %}
+      <li>
+        <a href="/conference/{{ conf.slug }}">
+          <strong>{{ conf.name }}</strong><br />
+          {{ conf.location_address }} ({{ conf.start_time | date("MMM d") }} - {{ conf.stop_time | date("MMM d") }})
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}
