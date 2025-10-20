@@ -14,3 +14,8 @@ run_worker_first = [ "/api/*" ]
 [[routes]]
 pattern = "researchroomies.com"
 custom_domain = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "research-roomies"
+database_id = "5469b98f-87d2-45d2-8e3d-738e45c1e3f2"
