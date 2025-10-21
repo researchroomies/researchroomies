@@ -1,12 +1,15 @@
 CREATE TABLE IF NOT EXISTS countries (
     id INTEGER NOT NULL PRIMARY KEY,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    iso2 TEXT,
+    iso3 TEXT
 );
 
 CREATE TABLE IF NOT EXISTS states (
     id INTEGER NOT NULL PRIMARY KEY,
     country_id INTEGER NOT NULL,
     name TEXT NOT NULL,
+    code TEXT,
     FOREIGN KEY (country_id) REFERENCES countries(id)
 );
 
