@@ -1,18 +1,22 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import { Router } from './lib/router';
+import { handleFeaturedConferences } from './routes/api';
+
+const router = new Router();
+
+// Register API routes
+router.add('GET', '/api/featured-conferences', handleFeaturedConferences);
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
-		return new Response('Hello World!');
+		const url = new URL(request.url);
+		
+		// Handle API routes
+		if (url.pathname.startsWith('/api/')) {
+			return await router.handle(request, env, ctx);
+		}
+		
+		// For non-API routes, let Cloudflare handle static assets
+		// This will serve files from the public directory
+		return env.ASSETS.fetch(request);
 	},
 } satisfies ExportedHandler<Env>;
