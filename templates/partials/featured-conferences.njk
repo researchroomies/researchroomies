@@ -1,0 +1,10 @@
+<ul>
+  {% for conf in featured %}
+  <li>
+    <a href="/conference/{{ conf.slug }}">
+      <strong>{{ conf.name }}</strong><br />
+      {{ conf.location_address }} ({{ conf.start_time | date("MMM d") }} - {{ conf.stop_time | date("MMM d") }})
+    </a>
+  </li>
+  {% endfor %}
+</ul>

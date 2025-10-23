@@ -16,16 +16,14 @@
   </aside>
   <section class="main">
     <h2>Featured Conferences</h2>
-    <ul>
-      {% for conf in featured %}
-      <li>
-        <a href="/conference/{{ conf.slug }}">
-          <strong>{{ conf.name }}</strong><br />
-          {{ conf.location_address }} ({{ conf.start_time | date("MMM d") }} - {{ conf.stop_time | date("MMM d") }})
-        </a>
-      </li>
-      {% endfor %}
-    </ul>
+    <div id="featured-conferences" 
+         hx-get="/api/featured-conferences" 
+         hx-trigger="load"
+         hx-indicator="#loading-indicator">
+      <div id="loading-indicator" class="htmx-indicator">
+        Loading featured conferences...
+      </div>
+    </div>
   </section>
 </div>
 {% endblock %}
