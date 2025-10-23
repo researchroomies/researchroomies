@@ -84,10 +84,3 @@ CREATE TABLE IF NOT EXISTS message (
     content STRING,
     timestamp NUMBER
 );
-
-CREATE TABLE IF NOT EXISTS Message_Object_Storage (
-    message_logs BUCKET,
-    post_id_inquirer_email_object_key STRING,
-    message_content_schema STRING,
-    put(message) PROCEDURE
-);
