@@ -87,6 +87,43 @@ function renderConferencePage(conference: Conference, posts: Post[]): string {
   `;
 }
 
+function renderFullPage(title: string, content: string): string {
+  const currentYear = new Date().getFullYear();
+  
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} – ResearchRoomies</title>
+  <link rel="stylesheet" href="/style/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
+</head>
+<body>
+  <header>
+    <div class="logo-nav">
+      <h1><a href="/">ResearchRoomies</a></h1>
+      <nav>
+        <a href="/search" class="nav-link">Search</a>
+        <a href="/create" class="nav-link">Create Post</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    ${content}
+  </main>
+
+  <footer>
+    <div class="fat-footer">
+      <p>&copy; ${currentYear} ResearchRoomies. All rights reserved.</p>
+      <a href="/about">About</a> | <a href="/terms">Terms</a> | <a href="/privacy">Privacy</a>
+    </div>
+  </footer>
+</body>
+</html>`;
+}
+
 export async function handleFeaturedConferences(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   try {
     const conferences = await getFeaturedConferences(env);
@@ -111,18 +148,25 @@ export async function handleConferencePage(request: Request, env: Env, ctx: Exec
   try {
     const slug = params?.slug;
     if (!slug) {
-      return new Response('Conference slug is required', { status: 400 });
+      return new Response(renderFullPage('Error', '<h2>Error</h2><p>Conference slug is required</p>'), { 
+        status: 400,
+        headers: { 'Content-Type': 'text/html' }
+      });
     }
 
     const conference = await getConferenceBySlug(env, slug);
     if (!conference) {
-      return new Response('Conference not found', { status: 404 });
+      return new Response(renderFullPage('Conference Not Found', '<h2>Conference Not Found</h2><p>The requested conference could not be found.</p>'), { 
+        status: 404,
+        headers: { 'Content-Type': 'text/html' }
+      });
     }
 
     const posts = await getPostsByConferenceId(env, conference.id);
-    const html = renderConferencePage(conference, posts);
+    const content = renderConferencePage(conference, posts);
+    const fullHtml = renderFullPage(conference.name, content);
     
-    return new Response(html, {
+    return new Response(fullHtml, {
       headers: {
         'Content-Type': 'text/html',
         'Cache-Control': 'public, max-age=300' // Cache for 5 minutes
@@ -130,7 +174,7 @@ export async function handleConferencePage(request: Request, env: Env, ctx: Exec
     });
   } catch (error) {
     console.error('Error fetching conference:', error);
-    return new Response('<p>Error loading conference. Please try again later.</p>', {
+    return new Response(renderFullPage('Error', '<h2>Error</h2><p>Error loading conference. Please try again later.</p>'), {
       status: 500,
       headers: { 'Content-Type': 'text/html' }
     });
