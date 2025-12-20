@@ -4,13 +4,12 @@ A platform for connecting academic conference attendees to find roommates and ca
 
 ## 🏗 Architecture
 
-This project is built on the [Cloudflare Connect](https://developers.cloudflare.com/workers/) implementation model, leveraging the following technologies:
+This project is built on [Cloudflare](https://developers.cloudflare.com/workers/), leveraging the following technologies:
 
 - **Runtime**: [Cloudflare Workers](https://workers.cloudflare.com/) (Serverless execution)
 - **Language**: TypeScript
 - **Database**: [Cloudflare D1](https://developers.cloudflare.com/d1/) (SQLite at the edge)
 - **Static Site Generation**: [Eleventy (11ty)](https://www.11ty.dev/)
-- **Testing**: [Vitest](https://vitest.dev/)
 
 ### Request Flow
 1. **Worker (`src/index.ts`)**: The entry point for all requests.
@@ -75,15 +74,3 @@ npm test
 ├── eleventy.config.js  # 11ty configuration
 └── wrangler.toml       # Cloudflare deployment config
 ```
-
-## 🤝 Contributing
-
-1. Fork the repository.
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -m 'Add some feature'`
-4. Push to the branch: `git push origin feature/my-feature`
-5. Open a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
