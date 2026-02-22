@@ -1,21 +1,22 @@
 {% extends "base.njk" %}
 {% block title %}Post - ResearchRoomies{% endblock %}
 {% block content %}
-<article>
-  <h2>{{ post.title }}</h2>
-  <p>{{ post.description }}</p>
-  <p><strong>Conference:</strong> <a href="/conference/{{ post.conference_slug }}">{{ post.conference_name }}</a></p>
-</article>
-<section>
-  <h3>Send an Inquiry</h3>
-  <form action="/api/message/send" method="POST">
-    <input type="hidden" name="post_id" value="{{ post.id }}" />
-    <label>Your Email</label>
-    <input type="email" name="email" required />
-    <label>Message</label>
-    <textarea name="content" rows="5" required></textarea>
-    <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
-    <button type="submit">Send</button>
-  </form>
-</section>
+<div id="post-container" style="padding: 2em; text-align: center;">
+  Loading post details...
+</div>
+<script>
+  (function() {
+    var parts = window.location.pathname.split('/');
+    var postId = parts[parts.length - 1] || parts[parts.length - 2];
+    var container = document.getElementById('post-container');
+    if (postId && container) {
+      container.setAttribute('hx-get', '/api/components/post/' + postId);
+      container.setAttribute('hx-trigger', 'load');
+      container.setAttribute('hx-swap', 'outerHTML');
+      htmx.process(container);
+    } else {
+      container.innerHTML = 'Invalid Post ID.';
+    }
+  })();
+</script>
 {% endblock %}

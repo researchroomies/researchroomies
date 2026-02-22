@@ -348,3 +348,68 @@ export async function handleCreatePost(request: Request, env: Env, ctx: Executio
     return new Response('Internal Server Error: ' + err.message, { status: 500 });
   }
 }
+
+export async function handlePostShell(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  // Fetch static `/post/index.html` from Cloudflare Pages Assets
+  const assetUrl = new URL('/post/', request.url);
+  const assetRequest = new Request(assetUrl, request);
+  return env.ASSETS.fetch(assetRequest);
+}
+
+export async function handleComponentPost(request: Request, env: Env, ctx: ExecutionContext, params?: Record<string, string>): Promise<Response> {
+  const postId = params?.id;
+  if (!postId) {
+    return new Response('Missing post ID', { status: 400 });
+  }
+
+  try {
+    const stmt = env.DB.prepare(`
+      SELECT p.id, p.title, p.description, p.conference_id, c.name as conference_name, c.slug as conference_slug
+      FROM posts p
+      JOIN conferences c ON p.conference_id = c.id
+      WHERE p.id = ?
+    `);
+
+    const result = await stmt.bind(parseInt(postId, 10)).first<{
+      id: number;
+      title: string;
+      description: string;
+      conference_id: number;
+      conference_name: string;
+      conference_slug: string;
+    }>();
+
+    if (!result) {
+      return new Response('<p>Post not found.</p>', { status: 404, headers: { 'Content-Type': 'text/html' } });
+    }
+
+    const html = `
+      <article>
+        <h2>\${result.title}</h2>
+        <p>\${result.description}</p>
+        <p><strong>Conference:</strong> <a href="/conference/\${result.conference_slug}">\${result.conference_name}</a></p>
+      </article>
+      <section>
+        <h3>Send an Inquiry</h3>
+        <form action="/api/message/send" method="POST">
+          <input type="hidden" name="post_id" value="\${result.id}" />
+          <label>Your Email</label>
+          <input type="email" name="email" required />
+          <label>Message</label>
+          <textarea name="content" rows="5" required></textarea>
+          <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
+          <button type="submit">Send</button>
+        </form>
+      </section>
+    `;
+
+    // Fix variable string formatting for JS template literal escaping
+    return new Response(html.replace(/\\\$/g, '$'), {
+      headers: { 'Content-Type': 'text/html', 'Cache-Control': 'public, max-age=60' }
+    });
+
+  } catch (error) {
+    console.error('Error fetching post:', error);
+    return new Response('<p>Error loading post.</p>', { status: 500, headers: { 'Content-Type': 'text/html' } });
+  }
+}
