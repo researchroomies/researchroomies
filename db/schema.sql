@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS cities (
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER NOT NULL PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
-    created_at INTEGER
+    created_at INTEGER,
+    last_login_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS conferences (

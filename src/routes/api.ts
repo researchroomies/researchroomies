@@ -1,3 +1,5 @@
+import { verifySessionToken } from '../lib/auth';
+
 interface Conference {
   id: number;
   name: string;
@@ -23,7 +25,7 @@ async function getFeaturedConferences(env: Env): Promise<Conference[]> {
     ORDER BY created_at DESC 
     LIMIT 10
   `);
-  
+
   const result = await stmt.all();
   return result.results as unknown as Conference[];
 }
@@ -34,7 +36,7 @@ async function getConferenceBySlug(env: Env, slug: string): Promise<Conference |
     FROM conferences 
     WHERE slug = ?
   `);
-  
+
   const result = await stmt.bind(slug).first();
   return result as unknown as Conference | null;
 }
@@ -46,7 +48,7 @@ async function getPostsByConferenceId(env: Env, conferenceId: number): Promise<P
     WHERE conference_id = ?
     ORDER BY created_at DESC
   `);
-  
+
   const result = await stmt.bind(conferenceId).all();
   return result.results as unknown as Post[];
 }
@@ -74,7 +76,7 @@ function renderFeaturedConferences(conferences: Conference[]): string {
 }
 
 function renderConferencePage(conference: Conference, posts: Post[]): string {
-  const postsHtml = posts.length > 0 
+  const postsHtml = posts.length > 0
     ? posts.map(post => `<li><a href="/post/${post.id}">${post.title}</a></li>`).join('')
     : '<li>No posts available for this conference.</li>';
 
@@ -89,7 +91,7 @@ function renderConferencePage(conference: Conference, posts: Post[]): string {
 
 function renderFullPage(title: string, content: string): string {
   const currentYear = new Date().getFullYear();
-  
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -128,7 +130,7 @@ export async function handleFeaturedConferences(request: Request, env: Env, ctx:
   try {
     const conferences = await getFeaturedConferences(env);
     const html = renderFeaturedConferences(conferences);
-    
+
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html',
@@ -148,7 +150,7 @@ export async function handleConferencePage(request: Request, env: Env, ctx: Exec
   try {
     const slug = params?.slug;
     if (!slug) {
-      return new Response(renderFullPage('Error', '<h2>Error</h2><p>Conference slug is required</p>'), { 
+      return new Response(renderFullPage('Error', '<h2>Error</h2><p>Conference slug is required</p>'), {
         status: 400,
         headers: { 'Content-Type': 'text/html' }
       });
@@ -156,7 +158,7 @@ export async function handleConferencePage(request: Request, env: Env, ctx: Exec
 
     const conference = await getConferenceBySlug(env, slug);
     if (!conference) {
-      return new Response(renderFullPage('Conference Not Found', '<h2>Conference Not Found</h2><p>The requested conference could not be found.</p>'), { 
+      return new Response(renderFullPage('Conference Not Found', '<h2>Conference Not Found</h2><p>The requested conference could not be found.</p>'), {
         status: 404,
         headers: { 'Content-Type': 'text/html' }
       });
@@ -165,7 +167,7 @@ export async function handleConferencePage(request: Request, env: Env, ctx: Exec
     const posts = await getPostsByConferenceId(env, conference.id);
     const content = renderConferencePage(conference, posts);
     const fullHtml = renderFullPage(conference.name, content);
-    
+
     return new Response(fullHtml, {
       headers: {
         'Content-Type': 'text/html',
@@ -175,6 +177,62 @@ export async function handleConferencePage(request: Request, env: Env, ctx: Exec
   } catch (error) {
     console.error('Error fetching conference:', error);
     return new Response(renderFullPage('Error', '<h2>Error</h2><p>Error loading conference. Please try again later.</p>'), {
+      status: 500,
+      headers: { 'Content-Type': 'text/html' }
+    });
+  }
+}
+
+async function getAllConferences(env: Env): Promise<Conference[]> {
+  const stmt = env.DB.prepare(`
+    SELECT id, name
+    FROM conferences 
+    ORDER BY name ASC
+  `);
+
+  const result = await stmt.all();
+  return result.results as unknown as Conference[];
+}
+
+export async function handleComponentCreateFormAuth(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cookieHeader = request.headers.get('Cookie');
+  let user = null;
+  if (cookieHeader) {
+    const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
+    const token = cookies['rr_session'];
+    if (token) {
+      user = await verifySessionToken(token, env.AUTH_HMAC_SECRET);
+    }
+  }
+
+  if (!user) {
+    return new Response('', {
+      status: 200,
+      headers: { 'HX-Redirect': '/login' }
+    });
+  }
+
+  const html = `<div id="auth-email-container"><label>Email</label><input type="email" name="email" value="${user.email}" readonly /></div>`;
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html' }
+  });
+}
+
+export async function handleComponentConferenceOptions(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  try {
+    const conferences = await getAllConferences(env);
+    const optionsHtml = conferences.map(conf => `<option value="${conf.id}">${conf.name}</option>`).join('');
+    const html = optionsHtml + '<option value="new">Create New Conference</option>';
+
+    return new Response(html, {
+      headers: {
+        'Content-Type': 'text/html',
+        'Cache-Control': 'public, max-age=300'
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching conferences:', error);
+    return new Response('<option value="new">Error loading conferences. Create New Conference.</option>', {
       status: 500,
       headers: { 'Content-Type': 'text/html' }
     });

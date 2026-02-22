@@ -1,21 +1,30 @@
 import { Router } from './lib/router';
-import { handleFeaturedConferences, handleConferencePage } from './routes/api';
+import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions } from './routes/api';
+import { handleAuthStart, handleAuthCallback, handleAuthLogout, handleAuthMe } from './routes/auth';
 
 const router = new Router();
 
 // Register API routes
 router.add('GET', '/api/featured-conferences', handleFeaturedConferences);
 router.add('GET', '/conference/:slug', handleConferencePage);
+router.add('GET', '/api/components/create-form-auth', handleComponentCreateFormAuth);
+router.add('GET', '/api/components/conference-options', handleComponentConferenceOptions);
+
+// Auth routes
+router.add('POST', '/api/auth/start', handleAuthStart);
+router.add('GET', '/api/auth/callback', handleAuthCallback);
+router.add('POST', '/api/auth/logout', handleAuthLogout);
+router.add('GET', '/api/auth/me', handleAuthMe);
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
-		
+
 		// Handle API routes and dynamic routes (like /conference/:slug)
 		if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/conference/')) {
 			return await router.handle(request, env, ctx);
 		}
-		
+
 		// For other routes, let Cloudflare handle static assets
 		// This will serve files from the public directory
 		return env.ASSETS.fetch(request);

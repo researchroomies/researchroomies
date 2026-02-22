@@ -1,0 +1,76 @@
+{% extends "base.njk" %}
+
+{% block title %}Login – ResearchRoomies{% endblock %}
+
+{% block head %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<style>
+    .login-container { max-width: 400px; margin: 40px auto; padding: 20px; text-align: center; }
+    .login-container input { width: 100%; padding: 10px; margin-bottom: 20px; box-sizing: border-box; }
+    .login-container button { padding: 10px 20px; background: #0070f3; color: white; border: none; cursor: pointer; border-radius: 4px; }
+    .login-container button:disabled { background: #ccc; }
+    .error { color: red; margin-top: 10px; }
+    .success { color: green; margin-top: 10px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <h2>Login</h2>
+    <form id="loginForm">
+        <input type="email" id="email" name="email" placeholder="Enter your email" required />
+        <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
+        <br/>
+        <button type="submit" id="submitBtn">Send Magic Link</button>
+    </form>
+    <div id="message"></div>
+</div>
+
+<script>
+    const form = document.getElementById('loginForm');
+    const messageDiv = document.getElementById('message');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        messageDiv.textContent = '';
+        messageDiv.className = '';
+        submitBtn.disabled = true;
+
+        const formData = new FormData(form);
+        const email = formData.get('email');
+        const cf_turnstile_response = formData.get('cf-turnstile-response');
+
+        if (!cf_turnstile_response) {
+            messageDiv.textContent = "Please complete the security check.";
+            messageDiv.className = "error";
+            submitBtn.disabled = false;
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/auth/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, cf_turnstile_response })
+            });
+
+            if (res.ok) {
+                messageDiv.textContent = "Check your email for the magic link!";
+                messageDiv.className = "success";
+                form.reset();
+                if (window.turnstile) window.turnstile.reset();
+            } else {
+                const txt = await res.text();
+                messageDiv.textContent = "Error: " + txt;
+                messageDiv.className = "error";
+            }
+        } catch (err) {
+            messageDiv.textContent = "Network error. Please try again.";
+            messageDiv.className = "error";
+        } finally {
+            submitBtn.disabled = false;
+        }
+    });
+</script>
+{% endblock %}

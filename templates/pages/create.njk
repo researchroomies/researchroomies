@@ -3,14 +3,13 @@
 {% block content %}
 <h2>Create a Post</h2>
 <form action="/api/post" method="POST">
-  <label>Email</label>
-  <input type="email" name="email" required />
+  <div id="auth-email-container" hx-get="/api/components/create-form-auth" hx-trigger="load" hx-swap="outerHTML">
+    <label>Email</label>
+    <input type="email" name="email" required placeholder="Checking authentication..." readonly />
+  </div>
 
   <label>Conference</label>
-  <select name="conference_id">
-    {% for conf in conferences %}
-      <option value="{{ conf.id }}">{{ conf.name }}</option>
-    {% endfor %}
+  <select name="conference_id" hx-get="/api/components/conference-options" hx-trigger="load" hx-swap="innerHTML">
     <option value="new">Create New Conference</option>
   </select>
 
@@ -33,7 +32,7 @@
   <label>Description</label>
   <textarea name="description" rows="6" required></textarea>
 
-  <div class="cf-turnstile" data-sitekey="YOUR_SITE_KEY_PLACEHOLDER"></div>
+  <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
   <button type="submit">Submit</button>
 </form>
 {% endblock %}
