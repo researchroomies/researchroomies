@@ -15,6 +15,7 @@
       <nav>
         <a href="/search" class="nav-link">Search</a>
         <a href="/create" class="nav-link">Create Post</a>
+        <span id="nav-user-state" hx-get="/api/components/nav-user" hx-trigger="load" hx-swap="outerHTML"></span>
         {% for tag in tags %}<a href="/subject/{{ tag.slug }}" class="nav-subject">{{ tag.name }}</a>{% endfor %}
       </nav>
     </div>

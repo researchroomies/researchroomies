@@ -1,5 +1,5 @@
 import { Router } from './lib/router';
-import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions, handleCreatePost, handlePostShell, handleComponentPost } from './routes/api';
+import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions, handleCreatePost, handlePostShell, handleComponentPost, handleComponentNavUser } from './routes/api';
 import { handleAuthStart, handleAuthCallback, handleAuthLogout, handleAuthMe } from './routes/auth';
 
 const router = new Router();
@@ -12,6 +12,7 @@ router.add('GET', '/api/components/conference-options', handleComponentConferenc
 router.add('POST', '/api/post', handleCreatePost);
 router.add('GET', '/post/:id', handlePostShell);
 router.add('GET', '/api/components/post/:id', handleComponentPost);
+router.add('GET', '/api/components/nav-user', handleComponentNavUser);
 
 // Auth routes
 router.add('POST', '/api/auth/start', handleAuthStart);

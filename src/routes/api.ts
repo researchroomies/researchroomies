@@ -412,3 +412,23 @@ export async function handleComponentPost(request: Request, env: Env, ctx: Execu
     return new Response('<p>Error loading post.</p>', { status: 500, headers: { 'Content-Type': 'text/html' } });
   }
 }
+
+export async function handleComponentNavUser(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cookieHeader = request.headers.get('Cookie');
+  let user = null;
+  if (cookieHeader) {
+    const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
+    const token = cookies['rr_session'];
+    if (token) {
+      user = await verifySessionToken(token, env.AUTH_HMAC_SECRET);
+    }
+  }
+
+  const html = user
+    ? `<a href="#" hx-post="/api/auth/logout" class="nav-link">Logout</a>`
+    : `<a href="/login" class="nav-link">Login</a>`;
+
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html', 'Cache-Control': 'private, no-cache' }
+  });
+}
