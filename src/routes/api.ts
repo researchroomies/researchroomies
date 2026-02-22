@@ -1,4 +1,5 @@
 import { verifySessionToken } from '../lib/auth';
+import { sendInquiryEmail } from '../lib/mailgun';
 
 interface Conference {
   id: number;
@@ -349,6 +350,79 @@ export async function handleCreatePost(request: Request, env: Env, ctx: Executio
   }
 }
 
+export async function handleMessageSend(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
+  const cookieHeader = request.headers.get('Cookie');
+  let user = null;
+  if (cookieHeader) {
+    const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
+    const token = cookies['rr_session'];
+    if (token) {
+      user = await verifySessionToken(token, env.AUTH_HMAC_SECRET);
+    }
+  }
+
+  if (!user) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  try {
+    const formData = await request.formData();
+    const postId = formData.get('post_id') as string;
+    const content = formData.get('content') as string;
+    const cf_turnstile_response = formData.get('cf-turnstile-response') as string;
+
+    if (!postId || !content) {
+      return new Response('Missing required fields', { status: 400 });
+    }
+
+    if (cf_turnstile_response) {
+      const turnstileBody = new FormData();
+      turnstileBody.append('secret', env.TURNSTILE_SECRET_KEY);
+      turnstileBody.append('response', cf_turnstile_response);
+      turnstileBody.append('remoteip', request.headers.get('CF-Connecting-IP') || '');
+
+      const turnVerify = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        body: turnstileBody,
+      });
+
+      const turnResult = await turnVerify.json() as any;
+      if (!turnResult.success) {
+        console.error("Turnstile failed:", turnResult);
+        return new Response('Invalid Turnstile', { status: 400 });
+      }
+    }
+
+    const stmt = env.DB.prepare(`
+      SELECT u.email, p.title
+      FROM posts p
+      JOIN users u ON p.user_id = u.id
+      WHERE p.id = ?
+    `);
+
+    const result = await stmt.bind(parseInt(postId, 10)).first<{ email: string, title: string }>();
+
+    if (!result) {
+      return new Response('Post not found', { status: 404 });
+    }
+
+    const success = await sendInquiryEmail(result.email, user.email, result.title, content, env);
+
+    if (!success) {
+      throw new Error('Failed to send email');
+    }
+
+    return Response.redirect(`${new URL(request.url).origin}/post/${postId}`, 303);
+  } catch (error) {
+    console.error('Error sending message:', error);
+    return new Response('Internal Server Error', { status: 500 });
+  }
+}
+
 export async function handlePostShell(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   // Fetch static `/post/index.html` from Cloudflare Pages Assets
   const assetUrl = new URL('/post/', request.url);
@@ -383,6 +457,28 @@ export async function handleComponentPost(request: Request, env: Env, ctx: Execu
       return new Response('<p>Post not found.</p>', { status: 404, headers: { 'Content-Type': 'text/html' } });
     }
 
+    const cookieHeader = request.headers.get('Cookie');
+    let user = null;
+    if (cookieHeader) {
+      const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
+      const token = cookies['rr_session'];
+      if (token) {
+        user = await verifySessionToken(token, env.AUTH_HMAC_SECRET);
+      }
+    }
+
+    const formHtml = user ? `
+        <form action="/api/message/send" method="POST">
+          <input type="hidden" name="post_id" value="${result.id}" />
+          <label>Message</label>
+          <textarea name="content" rows="5" required></textarea>
+          <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
+          <button type="submit">Send</button>
+        </form>
+    ` : `
+        <p>Please <a href="/login">log in</a> to send an inquiry.</p>
+    `;
+
     const html = `
       <article>
         <h2>${result.title}</h2>
@@ -391,15 +487,7 @@ export async function handleComponentPost(request: Request, env: Env, ctx: Execu
       </article>
       <section>
         <h3>Send an Inquiry</h3>
-        <form action="/api/message/send" method="POST">
-          <input type="hidden" name="post_id" value="${result.id}" />
-          <label>Your Email</label>
-          <input type="email" name="email" required />
-          <label>Message</label>
-          <textarea name="content" rows="5" required></textarea>
-          <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
-          <button type="submit">Send</button>
-        </form>
+        ${formHtml}
       </section>
     `;
 
