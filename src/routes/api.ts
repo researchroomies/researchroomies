@@ -385,14 +385,14 @@ export async function handleComponentPost(request: Request, env: Env, ctx: Execu
 
     const html = `
       <article>
-        <h2>\${result.title}</h2>
-        <p>\${result.description}</p>
-        <p><strong>Conference:</strong> <a href="/conference/\${result.conference_slug}">\${result.conference_name}</a></p>
+        <h2>${result.title}</h2>
+        <p>${result.description}</p>
+        <p><strong>Conference:</strong> <a href="/conference/${result.conference_slug}">${result.conference_name}</a></p>
       </article>
       <section>
         <h3>Send an Inquiry</h3>
         <form action="/api/message/send" method="POST">
-          <input type="hidden" name="post_id" value="\${result.id}" />
+          <input type="hidden" name="post_id" value="${result.id}" />
           <label>Your Email</label>
           <input type="email" name="email" required />
           <label>Message</label>
@@ -403,8 +403,7 @@ export async function handleComponentPost(request: Request, env: Env, ctx: Execu
       </section>
     `;
 
-    // Fix variable string formatting for JS template literal escaping
-    return new Response(html.replace(/\\\$/g, '$'), {
+    return new Response(html, {
       headers: { 'Content-Type': 'text/html', 'Cache-Control': 'public, max-age=60' }
     });
 
