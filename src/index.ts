@@ -1,5 +1,5 @@
 import { Router } from './lib/router';
-import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions } from './routes/api';
+import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions, handleCreatePost } from './routes/api';
 import { handleAuthStart, handleAuthCallback, handleAuthLogout, handleAuthMe } from './routes/auth';
 
 const router = new Router();
@@ -9,6 +9,7 @@ router.add('GET', '/api/featured-conferences', handleFeaturedConferences);
 router.add('GET', '/conference/:slug', handleConferencePage);
 router.add('GET', '/api/components/create-form-auth', handleComponentCreateFormAuth);
 router.add('GET', '/api/components/conference-options', handleComponentConferenceOptions);
+router.add('POST', '/api/post', handleCreatePost);
 
 // Auth routes
 router.add('POST', '/api/auth/start', handleAuthStart);

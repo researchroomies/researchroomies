@@ -238,3 +238,113 @@ export async function handleComponentConferenceOptions(request: Request, env: En
     });
   }
 }
+
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+}
+
+export async function handleCreatePost(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
+  const cookieHeader = request.headers.get('Cookie');
+  let user = null;
+  if (cookieHeader) {
+    const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
+    const token = cookies['rr_session'];
+    if (token) {
+      user = await verifySessionToken(token, env.AUTH_HMAC_SECRET);
+    }
+  }
+
+  if (!user) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  try {
+    const formData = await request.formData();
+    let conferenceId = formData.get('conference_id') as string;
+    const title = formData.get('title') as string;
+    const description = formData.get('description') as string;
+    const cf_turnstile_response = formData.get('cf-turnstile-response') as string;
+
+    if (!title || !description || !conferenceId) {
+      return new Response('Missing required fields', { status: 400 });
+    }
+
+    if (cf_turnstile_response) {
+      const turnstileBody = new FormData();
+      turnstileBody.append('secret', env.TURNSTILE_SECRET_KEY);
+      turnstileBody.append('response', cf_turnstile_response);
+      turnstileBody.append('remoteip', request.headers.get('CF-Connecting-IP') || '');
+
+      const turnVerify = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        body: turnstileBody,
+      });
+
+      const turnResult = await turnVerify.json() as any;
+      if (!turnResult.success) {
+        console.error("Turnstile failed:", turnResult);
+        return new Response('Invalid Turnstile', { status: 400 });
+      }
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // Resolve user ID
+    let userId: number;
+    const userRow = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(user.email).first<{ id: number }>();
+    if (!userRow) {
+      return new Response('User not found in database', { status: 404 });
+    }
+    userId = userRow.id;
+
+    if (conferenceId === 'new') {
+      const newConfName = formData.get('new_conf_name') as string;
+      const newConfStartStr = formData.get('new_conf_start') as string;
+      const newConfEndStr = formData.get('new_conf_end') as string;
+      const newConfLocation = formData.get('new_conf_location') as string;
+
+      if (!newConfName || !newConfStartStr || !newConfEndStr) {
+        return new Response('Missing required fields for new conference', { status: 400 });
+      }
+
+      const slug = generateSlug(newConfName);
+      const startTime = Math.floor(new Date(newConfStartStr).getTime() / 1000);
+      const stopTime = Math.floor(new Date(newConfEndStr).getTime() / 1000);
+
+      const result = await env.DB.prepare(`
+        INSERT INTO conferences (user_id, name, slug, location_address, start_time, stop_time, created_at, is_featured)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        RETURNING id
+      `).bind(userId, newConfName, slug, newConfLocation || null, startTime, stopTime, now).first<{ id: number }>();
+
+      if (!result) {
+        throw new Error('Failed to create conference');
+      }
+      conferenceId = result.id.toString();
+    }
+
+    const parsedConferenceId = parseInt(conferenceId, 10);
+
+    const result = await env.DB.prepare(`
+      INSERT INTO posts (user_id, conference_id, title, description, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      RETURNING id
+    `).bind(userId, parsedConferenceId, title, description, now).first<{ id: number }>();
+
+    if (!result) {
+      throw new Error('Failed to create post');
+    }
+
+    return Response.redirect(`${new URL(request.url).origin}/`, 303);
+  } catch (err: any) {
+    console.error('Error creating post:', err);
+    return new Response('Internal Server Error: ' + err.message, { status: 500 });
+  }
+}

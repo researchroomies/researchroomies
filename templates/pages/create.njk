@@ -9,11 +9,11 @@
   </div>
 
   <label>Conference</label>
-  <select name="conference_id" hx-get="/api/components/conference-options" hx-trigger="load" hx-swap="innerHTML">
+  <select name="conference_id" hx-get="/api/components/conference-options" hx-trigger="load" hx-swap="innerHTML" onchange="document.getElementById('new-conference-fields').style.display = this.value === 'new' ? 'block' : 'none';">
     <option value="new">Create New Conference</option>
   </select>
 
-  <div id="new-conference-fields">
+  <div id="new-conference-fields" style="display: none;">
     <label>New Conference Name</label>
     <input type="text" name="new_conf_name" />
     <label>Start Date</label>
