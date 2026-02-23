@@ -165,3 +165,7 @@ public
 .env*
 !.env.example
 .wrangler/
+
+
+# Personal
+.notes/
