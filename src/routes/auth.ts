@@ -31,8 +31,6 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
 
         const turnResult = await turnVerify.json() as any;
         if (!turnResult.success) {
-            // In dev, maybe we can skip strict Turnstile if it fails? But instructions say "Required".
-            // I'll log failure but maybe for now if using dummy keys it might work if client uses dummy sitekey.
             console.error("Turnstile failed:", turnResult);
             return new Response('Invalid Turnstile', { status: 400 });
         }
@@ -52,13 +50,10 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
 
         // 5. Send Email
         const sent = await sendMagicLink(normalizedEmail, link, env);
-
-        // Log for dev (since we can't see emails)
         console.log("MAGIC LINK GENERATED:", link);
 
         if (!sent) {
             console.error("Failed to send email to", normalizedEmail);
-            // Instructions: "Always return { ok: true }"
         }
 
         return new Response(JSON.stringify({ ok: true }), {
@@ -90,9 +85,7 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
     // Check if user exists
     let user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(payload.email).first<{ id: number, email: string, created_at: number }>();
 
-    let userId: string; // Since we kept ID as INTEGER, we need to handle it.
-    // Wait, if users.id is INTEGER PRIMARY KEY, sqlite handles auto-increment.
-    // We shouldn't generate UUID.
+    let userId: string;
 
     const now = Math.floor(Date.now() / 1000);
 
@@ -135,7 +128,7 @@ export async function handleAuthLogout(request: Request, env: Env, ctx: Executio
             ...Object.fromEntries(headers),
             'Content-Type': 'application/json'
         }
-    }); // Note: If called via API, JSON is fine. If via browser nav, might want redirect. Instructions say "Return { ok: true }".
+    });
 }
 
 export async function handleAuthMe(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
