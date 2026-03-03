@@ -1,9 +1,5 @@
-import nunjucks from 'nunjucks';
-import baseTemplate from '../../templates/layouts/base.njk';
 import { verifySessionToken } from '../lib/auth';
 import { sendInquiryEmail } from '../lib/mailgun';
-
-const nunjucksEnv = new nunjucks.Environment(null as any, { autoescape: true });
 
 interface Conference {
   id: number;
@@ -95,11 +91,40 @@ function renderConferencePage(conference: Conference, posts: Post[]): string {
 }
 
 function renderFullPage(title: string, content: string): string {
-  return nunjucksEnv.renderString(baseTemplate, {
-    page_title: title,
-    page_content: content,
-    year: new Date().getFullYear(),
-  });
+  const currentYear = new Date().getFullYear();
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} – ResearchRoomies</title>
+  <link rel="stylesheet" href="/style/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
+</head>
+<body>
+  <header>
+    <div class="logo-nav">
+      <h1><a href="/">ResearchRoomies</a></h1>
+      <nav>
+        <a href="/search" class="nav-link">Search</a>
+        <a href="/create" class="nav-link">Create Post</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    ${content}
+  </main>
+
+  <footer>
+    <div class="fat-footer">
+      <p>&copy; ${currentYear} ResearchRoomies. All rights reserved.</p>
+      <a href="/about">About</a> | <a href="/terms">Terms</a> | <a href="/privacy">Privacy</a>
+    </div>
+  </footer>
+</body>
+</html>`;
 }
 
 export async function handleFeaturedConferences(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

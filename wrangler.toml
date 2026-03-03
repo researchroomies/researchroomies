@@ -1,11 +1,6 @@
 name = "researchroomies"
 main = "src/index.ts"
 compatibility_date = "2025-08-26"
-compatibility_flags = ["nodejs_compat"]
-
-[[rules]]
-type = "Text"
-globs = ["**/*.njk"]
 
 [observability]
 enabled = true
