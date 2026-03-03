@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}ResearchRoomies{% endblock %}</title>
+  <title>{% block title %}{% if page_title %}{{ page_title }} – ResearchRoomies{% else %}ResearchRoomies{% endif %}{% endblock %}</title>
   <link rel="stylesheet" href="/style/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
   {% block head %}{% endblock %}
@@ -22,7 +22,7 @@
   </header>
 
   <main>
-    {% block content %}{% endblock %}
+    {% block content %}{{ page_content | safe }}{% endblock %}
   </main>
 
   <footer>
