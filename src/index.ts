@@ -1,5 +1,5 @@
 import { Router } from './lib/router';
-import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions, handleCreatePost, handlePostShell, handleComponentPost, handleComponentNavUser, handleMessageSend } from './routes/api';
+import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions, handleCreatePost, handlePostShell, handleComponentPost, handleComponentNavUser, handleMessageSend, handleMyPosts, handleSearch } from './routes/api';
 import { handleAuthStart, handleAuthCallback, handleAuthLogout, handleAuthMe } from './routes/auth';
 
 const router = new Router();
@@ -14,6 +14,8 @@ router.add('GET', '/post/:id', handlePostShell);
 router.add('GET', '/api/components/post/:id', handleComponentPost);
 router.add('GET', '/api/components/nav-user', handleComponentNavUser);
 router.add('POST', '/api/message/send', handleMessageSend);
+router.add('GET', '/my-posts', handleMyPosts);
+router.add('GET', '/search', handleSearch);
 
 // Auth routes
 router.add('POST', '/api/auth/start', handleAuthStart);
@@ -26,7 +28,7 @@ export default {
 		const url = new URL(request.url);
 
 		// Handle API routes and dynamic routes (like /conference/:slug and /post/:id)
-		if (url.pathname.match(/^\/(api|conference|post)\//)) {
+		if (url.pathname === '/my-posts' || url.pathname === '/search' || url.pathname.match(/^\/(api|conference|post)\//)) {
 			return await router.handle(request, env, ctx);
 		}
 

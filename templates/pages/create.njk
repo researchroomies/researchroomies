@@ -14,14 +14,17 @@
   </select>
 
   <div id="new-conference-fields" style="display: none;">
+    <p class="form-notice">Please make sure you are not duplicating an already existing conference. Browse existing conferences before creating a new one.</p>
     <label>New Conference Name</label>
     <input type="text" name="new_conf_name" />
     <label>Start Date</label>
     <input type="date" name="new_conf_start" />
     <label>End Date</label>
     <input type="date" name="new_conf_end" />
-    <label>Location</label>
-    <input type="text" name="new_conf_location" />
+    <label>City</label>
+    <input type="text" name="new_conf_city" />
+    <label>State</label>
+    <input type="text" name="new_conf_state" />
     <label>Tags</label>
     <input type="text" name="new_conf_tags" placeholder="comma separated" />
   </div>
@@ -32,6 +35,7 @@
   <label>Description</label>
   <textarea name="description" rows="6" required></textarea>
 
+  <p class="form-disclaimer">Please make sure you are only posting information that you are comfortable making publicly available.</p>
   <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
   <button type="submit">Submit</button>
 </form>

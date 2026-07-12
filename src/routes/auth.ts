@@ -122,13 +122,9 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
 export async function handleAuthLogout(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const headers = new Headers();
     headers.append('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+    headers.append('HX-Redirect', '/');
 
-    return new Response(JSON.stringify({ ok: true }), {
-        headers: {
-            ...Object.fromEntries(headers),
-            'Content-Type': 'application/json'
-        }
-    });
+    return new Response(null, { status: 200, headers });
 }
 
 export async function handleAuthMe(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

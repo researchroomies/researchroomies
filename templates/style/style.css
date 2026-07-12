@@ -1,145 +1,224 @@
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 body {
-  font-family: sans-serif;
-  line-height: 1.6;
-  background-color: #fafafa;
-  color: #222;
-  padding: 1rem;
+    font-family: sans-serif;
+    line-height: 1.6;
+    background-color: #fafafa;
+    color: #222;
+    padding: 1rem;
 }
 
-header, footer {
-  background-color: #f0f0f0;
-  padding: 1rem;
+header,
+footer {
+    background-color: #f0f0f0;
+    padding: 1rem;
 }
 
 h1 a {
-  text-decoration: none;
-  color: #007acc;
+    text-decoration: none;
+    color: #007acc;
 }
 
 nav {
-  margin-top: 0.5rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+    margin-top: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .nav-link {
-  font-weight: bold;
-  color: #007acc;
-  text-decoration: none;
+    font-weight: bold;
+    color: #007acc;
+    text-decoration: none;
 }
 
 .nav-subject {
-  background: #e6f0ff;
-  padding: 0.2rem 0.5rem;
-  border-radius: 0.2rem;
-  font-size: 0.9rem;
-  color: #003d66;
-  text-decoration: none;
+    background: #e6f0ff;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.2rem;
+    font-size: 0.9rem;
+    color: #003d66;
+    text-decoration: none;
 }
 
 main {
-  margin-top: 2rem;
+    margin-top: 2rem;
 }
 
 footer {
-  margin-top: 4rem;
-  text-align: center;
-  font-size: 0.9rem;
-  color: #666;
+    margin-top: 4rem;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #666;
 }
 
 form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
 }
 
-input, select, textarea, button {
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 1rem;
+input,
+select,
+textarea,
+button {
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 1rem;
 }
 
 button {
-  background-color: #007acc;
-  color: white;
-  border: none;
-  cursor: pointer;
+    background-color: #007acc;
+    color: white;
+    border: none;
+    cursor: pointer;
 }
 
 button:hover {
-  background-color: #005fa3;
+    background-color: #005fa3;
 }
 
 .post-card {
-  border: 1px solid #ddd;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  background: white;
+    border: 1px solid #ddd;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: white;
 }
 
 .sidebar {
-  margin-bottom: 2rem;
+    margin-bottom: 2rem;
 }
 
 .home-layout {
-  display: flex;
-  flex-direction: column;
+    display: flex;
+    flex-direction: column;
 }
 
 @media (min-width: 768px) {
-  .home-layout {
-    flex-direction: row;
-    gap: 2rem;
-  }
-  .sidebar {
-    width: 30%;
-  }
-  .main {
-    width: 70%;
-  }
+    .home-layout {
+        flex-direction: row;
+        gap: 2rem;
+    }
+    .sidebar {
+        width: 30%;
+    }
+    .main {
+        width: 70%;
+    }
 }
 
 .site-page {
-  max-width: 800px;
-  margin: 0 auto;
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  line-height: 1.6;
+    max-width: 800px;
+    margin: 0 auto;
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    line-height: 1.6;
 }
 
-.site-page h1, .site-page h2, .site-page h3 {
-  margin-bottom: 0.5rem;
-  color: #003d66;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 0.5rem;
+.site-page h1,
+.site-page h2,
+.site-page h3 {
+    margin-bottom: 0.5rem;
+    color: #003d66;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.5rem;
 }
 
 .site-page p {
-  margin-bottom: 1rem;
+    margin-bottom: 1rem;
 }
 
 .site-page ul {
-  margin-left: 2rem;
-  margin-bottom: 1rem;
+    margin-left: 2rem;
+    margin-bottom: 1rem;
 }
 
 .site-page a {
-  color: #007acc;
-  text-decoration: none;
+    color: #007acc;
+    text-decoration: none;
 }
 
 .site-page a:hover {
-  text-decoration: underline;
+    text-decoration: underline;
+}
+
+/* My Posts page styles */
+.my-posts-list {
+    list-style: none;
+    padding: 0;
+    margin-top: 1rem;
+}
+
+.my-post-item {
+    background: #fafafa;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.my-post-item h3 {
+    margin-bottom: 0.5rem;
+    font-size: 1.1rem;
+}
+
+.my-post-item h3 a {
+    color: #003d66;
+}
+
+.my-post-item h3 a:hover {
+    color: #007acc;
+    text-decoration: none;
+}
+
+.conference-info {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+}
+
+.conference-info a {
+    color: #007acc;
+}
+
+.created-info {
+    color: #999;
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+.empty-state {
+    color: #666;
+    font-size: 1rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    background: #fafafa;
+    border: 1px dashed #ddd;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.form-notice {
+    background: #fffbea;
+    border: 1px solid #f0c040;
+    border-radius: 4px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+    color: #7a5800;
+    margin-bottom: 0.75rem;
+}
+
+.form-disclaimer {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 0.5rem;
+    font-style: italic;
 }
