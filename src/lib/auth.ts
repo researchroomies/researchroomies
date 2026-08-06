@@ -20,6 +20,21 @@ export interface SessionPayload {
 const MAGICLINK_TTL = 900; // 15 minutes
 const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
 
+/**
+ * Optional .edu-only gate, controlled by the RESTRICT_EDU_EMAILS var in
+ * wrangler.toml. Fails open: anything other than the literal string "true"
+ * (including the var being absent) allows every address through.
+ *
+ * The check is a strict `.edu` suffix, so it also rejects international
+ * academic domains such as .ac.uk and .edu.au. See CLAUDE.md before enabling.
+ */
+export function isEmailAllowed(email: string, env: Env): boolean {
+    const restricted = String(env.RESTRICT_EDU_EMAILS ?? '').trim().toLowerCase() === 'true';
+    if (!restricted) return true;
+
+    return email.trim().toLowerCase().endsWith('.edu');
+}
+
 // Utilities for base64url encoding/decoding
 function base64urlEncode(buffer: Uint8Array): string {
     const base64 = btoa(String.fromCharCode(...buffer));

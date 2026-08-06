@@ -2,6 +2,15 @@ name = "researchroomies"
 main = "src/index.ts"
 compatibility_date = "2025-08-26"
 
+[vars]
+# Optional institutional-email gate on login/signup. Off by default.
+# Set to "true" and redeploy to accept only addresses ending in .edu.
+# Read the tradeoff note in CLAUDE.md before enabling: a strict .edu suffix
+# also turns away international academics (.ac.uk, .edu.au, and universities
+# with no .edu domain at all), and it applies to EXISTING users too, so anyone
+# already registered with a non-.edu address loses the ability to log in.
+RESTRICT_EDU_EMAILS = "false"
+
 [observability]
 enabled = true
 
@@ -9,7 +18,11 @@ enabled = true
 directory = "./public/"
 not_found_handling = "404-page"
 binding = "ASSETS"
-run_worker_first = [ "/api/*" ]
+# Static assets are matched BEFORE the Worker runs, so any path that must reach
+# a Worker route has to either have no matching asset or be listed here.
+# /search regressed exactly this way: templates/pages/search.njk built to
+# public/search/index.html and silently shadowed the GET /search handler.
+run_worker_first = [ "/api/*", "/search", "/my-posts" ]
 
 [[routes]]
 pattern = "researchroomies.com"

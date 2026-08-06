@@ -85,3 +85,29 @@ CREATE TABLE IF NOT EXISTS message (
     content STRING,
     timestamp NUMBER
 );
+
+-- Conference slugs address /conference/:slug, so collisions make a conference
+-- unreachable. generateUniqueSlug() in src/routes/api.ts suffixes duplicates;
+-- this index is the backstop. Safe to re-run on an existing database.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conferences_slug ON conferences(slug);
+
+CREATE INDEX IF NOT EXISTS idx_posts_conference_id ON posts(conference_id);
+CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);
+CREATE INDEX IF NOT EXISTS idx_flags_post_id ON flags(post_id);
+
+-- Curated subject list. Tags are conference-level and deliberately fixed: the
+-- nav and the /subject/:slug browse pages read from this table, so user-created
+-- tags would make both unbounded. Add new subjects here, then re-run this file.
+INSERT OR IGNORE INTO tags (slug, name) VALUES
+    ('mathematics', 'Mathematics'),
+    ('physics', 'Physics'),
+    ('chemistry', 'Chemistry'),
+    ('biology', 'Biology'),
+    ('computer-science', 'Computer Science'),
+    ('engineering', 'Engineering'),
+    ('medicine', 'Medicine & Health'),
+    ('earth-science', 'Earth & Environmental Science'),
+    ('social-sciences', 'Social Sciences'),
+    ('economics', 'Economics & Business'),
+    ('humanities', 'Humanities'),
+    ('education', 'Education');

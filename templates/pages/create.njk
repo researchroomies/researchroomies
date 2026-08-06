@@ -25,8 +25,12 @@
     <input type="text" name="new_conf_city" />
     <label>State</label>
     <input type="text" name="new_conf_state" />
-    <label>Tags</label>
-    <input type="text" name="new_conf_tags" placeholder="comma separated" />
+    <label>Subjects</label>
+    <select name="conf_tags" multiple size="6"
+            hx-get="/api/components/tag-options?blank=0"
+            hx-trigger="load"
+            hx-swap="innerHTML"></select>
+    <p class="field-hint">Hold Ctrl (or Cmd) to select more than one. Subjects let people find this conference from the nav and the search filter.</p>
   </div>
 
   <label>Post Title</label>

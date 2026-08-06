@@ -1,21 +1,53 @@
 import { Router } from './lib/router';
-import { handleFeaturedConferences, handleConferencePage, handleComponentCreateFormAuth, handleComponentConferenceOptions, handleCreatePost, handlePostShell, handleComponentPost, handleComponentNavUser, handleMessageSend, handleMyPosts, handleSearch } from './routes/api';
+import {
+	handleFeaturedConferences,
+	handleConferencePage,
+	handleComponentCreateFormAuth,
+	handleComponentConferenceOptions,
+	handleComponentNavSubjects,
+	handleComponentTagOptions,
+	handleCreatePost,
+	handlePostShell,
+	handleComponentPost,
+	handleComponentNavUser,
+	handleMessageSend,
+	handleMyPosts,
+	handleSearch,
+	handleSubjectPage,
+} from './routes/api';
 import { handleAuthStart, handleAuthCallback, handleAuthLogout, handleAuthMe } from './routes/auth';
+import { handleEditPostForm, handleEditPostSubmit, handleDeletePostConfirm, handleDeletePostSubmit } from './routes/posts';
+import { handleReportForm, handleReportSubmit } from './routes/flags';
 
 const router = new Router();
 
-// Register API routes
+// API + HTMX component routes
 router.add('GET', '/api/featured-conferences', handleFeaturedConferences);
-router.add('GET', '/conference/:slug', handleConferencePage);
 router.add('GET', '/api/components/create-form-auth', handleComponentCreateFormAuth);
 router.add('GET', '/api/components/conference-options', handleComponentConferenceOptions);
-router.add('POST', '/api/post', handleCreatePost);
-router.add('GET', '/post/:id', handlePostShell);
-router.add('GET', '/api/components/post/:id', handleComponentPost);
 router.add('GET', '/api/components/nav-user', handleComponentNavUser);
+router.add('GET', '/api/components/nav-subjects', handleComponentNavSubjects);
+router.add('GET', '/api/components/tag-options', handleComponentTagOptions);
+router.add('GET', '/api/components/post/:id', handleComponentPost);
+router.add('POST', '/api/post', handleCreatePost);
 router.add('POST', '/api/message/send', handleMessageSend);
+
+// Worker-rendered pages
+router.add('GET', '/conference/:slug', handleConferencePage);
+router.add('GET', '/subject/:slug', handleSubjectPage);
+router.add('GET', '/post/:id', handlePostShell);
 router.add('GET', '/my-posts', handleMyPosts);
 router.add('GET', '/search', handleSearch);
+
+// Post ownership actions
+router.add('GET', '/post/:id/edit', handleEditPostForm);
+router.add('POST', '/post/:id/edit', handleEditPostSubmit);
+router.add('GET', '/post/:id/delete', handleDeletePostConfirm);
+router.add('POST', '/post/:id/delete', handleDeletePostSubmit);
+
+// Moderation
+router.add('GET', '/post/:id/report', handleReportForm);
+router.add('POST', '/post/:id/report', handleReportSubmit);
 
 // Auth routes
 router.add('POST', '/api/auth/start', handleAuthStart);
@@ -27,13 +59,15 @@ export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
 
-		// Handle API routes and dynamic routes (like /conference/:slug and /post/:id)
-		if (url.pathname === '/my-posts' || url.pathname === '/search' || url.pathname.match(/^\/(api|conference|post)\//)) {
-			return await router.handle(request, env, ctx);
+		// Ask the router itself whether it owns this path. Previously this was a
+		// hand-maintained path-prefix regex that every new route had to be added
+		// to by hand — forgetting to was a silent 404.
+		const matched = router.match(request.method, url.pathname);
+		if (matched) {
+			return await matched.route.handler(request, env, ctx, matched.params);
 		}
 
-		// For other routes, let Cloudflare handle static assets
-		// This will serve files from the public directory
+		// Anything else is a static asset built by Eleventy into public/.
 		return env.ASSETS.fetch(request);
 	},
 } satisfies ExportedHandler<Env>;

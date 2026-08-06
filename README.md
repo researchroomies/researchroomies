@@ -94,6 +94,10 @@ npm run build    # Build Eleventy static pages into public/
 npm run deploy   # Deploy Worker + static assets to Cloudflare
 ```
 
+**Optional: restrict accounts to `.edu` addresses**
+
+Set `RESTRICT_EDU_EMAILS = "true"` in `[vars]` in `wrangler.toml` and redeploy. It is `"false"` by default. Note that it rejects international academic domains (`.ac.uk`, `.edu.au`) and applies to existing users as well as new signups.
+
 **Set production secrets (one-time per secret):**
 ```bash
 npx wrangler secret put AUTH_HMAC_SECRET

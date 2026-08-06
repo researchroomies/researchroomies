@@ -6,6 +6,7 @@
   <title>{% block title %}ResearchRoomies{% endblock %}</title>
   <link rel="stylesheet" href="/style/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -16,7 +17,7 @@
         <a href="/search" class="nav-link">Search</a>
         <a href="/create" class="nav-link">Create Post</a>
         <span id="nav-user-state" hx-get="/api/components/nav-user" hx-trigger="load" hx-swap="outerHTML"></span>
-        {% for tag in tags %}<a href="/subject/{{ tag.slug }}" class="nav-subject">{{ tag.name }}</a>{% endfor %}
+        <span id="nav-subjects" hx-get="/api/components/nav-subjects" hx-trigger="load" hx-swap="outerHTML"></span>
       </nav>
     </div>
   </header>

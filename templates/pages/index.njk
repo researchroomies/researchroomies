@@ -3,11 +3,11 @@
 {% block content %}
 <div class="home-layout">
   <aside class="sidebar">
-    <form action="/search" method="get">
-      <input type="text" name="conference" placeholder="Search conferences" />
-      <select name="tag">
+    <form action="/search" method="get" class="search-form">
+      <input type="text" name="q" placeholder="Keywords" />
+      <input type="text" name="conference" placeholder="Conference name" />
+      <select name="tag" hx-get="/api/components/tag-options" hx-trigger="load" hx-swap="innerHTML">
         <option value="">Subject</option>
-        {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
       </select>
       <input type="date" name="start" />
       <input type="date" name="end" />

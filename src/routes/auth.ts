@@ -1,8 +1,8 @@
-import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, verifySessionToken } from '../lib/auth';
+import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isEmailAllowed } from '../lib/auth';
 import { sendMagicLink } from '../lib/mailgun';
+import { COOKIE_NAME, getSessionUser } from '../lib/session';
 
 const APP_ORIGIN = "https://researchroomies.com";
-const COOKIE_NAME = "rr_session";
 const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
 
 export async function handleAuthStart(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -42,13 +42,21 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
             return new Response('Invalid email format', { status: 400 });
         }
 
-        // 3. Create magic-link token
+        // 3. Optional institutional-email gate (RESTRICT_EDU_EMAILS)
+        if (!isEmailAllowed(normalizedEmail, env)) {
+            return new Response(
+                'Accounts are currently limited to .edu email addresses. If you are an academic without one, email admin@researchroomies.com and we will get you set up.',
+                { status: 403 }
+            );
+        }
+
+        // 4. Create magic-link token
         const token = await generateMagicLinkToken(normalizedEmail, env.AUTH_HMAC_SECRET);
 
-        // 4. Email link
+        // 5. Email link
         const link = `${APP_ORIGIN}/api/auth/callback?token=${encodeURIComponent(token)}`;
 
-        // 5. Send Email
+        // 6. Send Email
         const sent = await sendMagicLink(normalizedEmail, link, env);
         console.log("MAGIC LINK GENERATED:", link);
 
@@ -78,6 +86,15 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
     const payload = await verifyMagicLinkToken(token, env.AUTH_HMAC_SECRET);
     if (!payload) {
         return new Response('Invalid or expired token', { status: 400 });
+    }
+
+    // Re-check the gate here too, so flipping RESTRICT_EDU_EMAILS on takes
+    // effect immediately rather than after the last issued link expires.
+    if (!isEmailAllowed(payload.email, env)) {
+        return new Response(
+            'Accounts are currently limited to .edu email addresses. If you are an academic without one, email admin@researchroomies.com and we will get you set up.',
+            { status: 403 }
+        );
     }
 
     // 2. Upsert user
@@ -128,22 +145,9 @@ export async function handleAuthLogout(request: Request, env: Env, ctx: Executio
 }
 
 export async function handleAuthMe(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const cookieHeader = request.headers.get('Cookie');
-    if (!cookieHeader) {
-        return new Response(JSON.stringify({ user: null }), { headers: { 'Content-Type': 'application/json' } });
-    }
+    const user = await getSessionUser(request, env);
 
-    const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
-    const token = cookies[COOKIE_NAME];
-
-    if (!token) {
-        return new Response(JSON.stringify({ user: null }), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    const payload = await verifySessionToken(token, env.AUTH_HMAC_SECRET);
-    if (!payload) {
-        return new Response(JSON.stringify({ user: null }), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    return new Response(JSON.stringify({ user: payload }), { headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ user }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-cache' }
+    });
 }

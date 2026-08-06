@@ -9,6 +9,7 @@ declare namespace Cloudflare {
         MAILGUN_SENDING_KEY?: string; // Optional, defaults to login@researchroomies.com logic
         AUTH_HMAC_SECRET: string;
         TURNSTILE_SECRET_KEY: string;
+        RESTRICT_EDU_EMAILS?: string; // "true" enables the .edu-only gate; anything else (or absent) is off
     }
 }
 interface Env extends Cloudflare.Env { }
