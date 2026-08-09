@@ -57,11 +57,17 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
         const link = `${APP_ORIGIN}/api/auth/callback?token=${encodeURIComponent(token)}`;
 
         // 6. Send Email
+        // Never log `link` — it carries a valid login token for this address.
         const sent = await sendMagicLink(normalizedEmail, link, env);
-        console.log("MAGIC LINK GENERATED:", link);
 
         if (!sent) {
-            console.error("Failed to send email to", normalizedEmail);
+            // Must not report ok: the user would be told to check an inbox that
+            // will never receive anything, and a broken mailer stays invisible.
+            console.error("Failed to send magic link to", normalizedEmail);
+            return new Response(
+                'We could not send the login email just now. Please try again in a few minutes, or contact admin@researchroomies.com if the problem continues.',
+                { status: 502 }
+            );
         }
 
         return new Response(JSON.stringify({ ok: true }), {
