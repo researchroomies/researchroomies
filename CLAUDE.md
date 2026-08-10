@@ -88,6 +88,16 @@ degrade into a GET. Covered by `test/routing.test.ts`.
 
 ---
 
+### Refactor Task 5 — configuration module, 2026-08-10
+
+`src/lib/config.ts` is now the only place a deployment literal lives. `getConfig(env, request?)` returns `origin`, `sessionTtlSeconds`, `magicLinkTtlSeconds`, `turnstileSiteKey`, `mailgun` and `adminEmail`. Every default reproduces the literal it replaced, so an existing deployment that sets none of the new vars is unaffected.
+
+- **The session TTL had two definitions** — `lib/auth.ts` set the token's `exp`, `routes/auth.ts` set the cookie's `Max-Age`, and they agreed by coincidence. Divergence is a silent logout. One constant now, and `handleAuthCallback` derives both from a single local. Verified end-to-end, not just by reading: `exp - iat` = 2592000 = the cookie's `Max-Age`.
+- **The origin is derived from the request** (`APP_ORIGIN` overrides), so a staging deployment links to itself instead of to production. Note the `wrangler dev` caveat in the backlog.
+- **The Turnstile sitekey has one definition**, `TURNSTILE_SITE_KEY` in `[vars]`. Worker forms call `turnstileWidget(env)`; Eleventy pages use a `{{ turnstileSiteKey }}` global that `eleventy.config.js` reads back out of `wrangler.toml`, failing the build if it is missing. `TURNSTILE_SECRET_KEY` stays a secret.
+- **`MAILGUN_SENDING_KEY` was documented, not renamed.** It is a From address, not a key, but renaming it means rotating a deployed secret by hand for no functional gain. `config.mailgun.from` carries the correct meaning; the var keeps the wrong name.
+- **The "valid for 15 minutes" copy is generated** from `MAGIC_LINK_TTL_SECONDS`, in both email bodies and the expired-link page, so it cannot drift from the token.
+
 ## Open decisions
 
 ### `.edu` email restriction — built as a switch, currently OFF
@@ -117,7 +127,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Editing conference details.** Posts are editable; the conference a post belongs to is not.
 - **`message` is write-only.** Rows are recorded but never surfaced anywhere.
 - **Inquiry persistence depends on email success.** `handleMessageSend` inserts the `message` row only after Mailgun accepts, so a Mailgun outage returns 500 and records nothing. Deliberate for now (the row means "this was actually sent"), but worth revisiting.
-- **`APP_ORIGIN` in `src/routes/auth.ts` is hardcoded to production**, so magic links generated in local dev point at researchroomies.com.
+- **Zero-config localhost magic links are still one flag away.** `getConfig()` derives the origin from the request, but `wrangler dev` synthesizes the request host from `[[routes]]`, so plain `npm run dev` still produces `http://researchroomies.com/...` links. Pinning it needs `--local-upstream localhost:<port>` or `--var APP_ORIGIN:...` (see AGENTS.md). A committed fix would have to hardcode a dev port, which is wrong the moment anyone passes `--port`; left as a documented flag instead.
 - **npm audit reports 6 high advisories**, all dev-only (`wrangler`/`miniflare` → `sharp`, `ws`, `undici`); nothing reaches the edge, since Workers bundles only `src/`. There is currently no clean path to zero: `@cloudflare/vitest-pool-workers` ≥ 0.16.8 requires vitest 4, and 0.20.x drops the `./config` export `vitest.config.mts` imports, so upgrading needs a config migration. npm's own suggested "fix" is a downgrade into differently-vulnerable versions. Re-check when Cloudflare ships a clean combination.
 
 ---

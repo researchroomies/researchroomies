@@ -1,3 +1,5 @@
+import { MAGIC_LINK_TTL_SECONDS, SESSION_TTL_SECONDS } from './config';
+
 export interface MagicLinkPayload {
     v: number;
     email: string;
@@ -16,9 +18,6 @@ export interface SessionPayload {
     aud: 'session';
     iss: 'researchroomies';
 }
-
-const MAGICLINK_TTL = 900; // 15 minutes
-const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
 
 /**
  * Optional .edu-only gate, controlled by the RESTRICT_EDU_EMAILS var in
@@ -82,13 +81,17 @@ async function sign(payload: string, secret: string): Promise<string> {
     return base64urlEncode(new Uint8Array(signature));
 }
 
-export async function generateMagicLinkToken(email: string, secret: string): Promise<string> {
+export async function generateMagicLinkToken(
+    email: string,
+    secret: string,
+    ttlSeconds: number = MAGIC_LINK_TTL_SECONDS
+): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
     const payload: MagicLinkPayload = {
         v: 1,
         email,
         iat: now,
-        exp: now + MAGICLINK_TTL,
+        exp: now + ttlSeconds,
         aud: 'magiclink',
         iss: 'researchroomies'
     };
@@ -133,14 +136,25 @@ export async function verifyMagicLinkToken(token: string, secret: string): Promi
     }
 }
 
-export async function generateSessionToken(userLastLoginAt: number, email: string, userId: string, secret: string): Promise<string> {
+/**
+ * `ttlSeconds` defaults to the same constant the session cookie's `Max-Age` is
+ * built from. Callers should still pass it explicitly from `getConfig()` so the
+ * cookie and the token are demonstrably derived from one value.
+ */
+export async function generateSessionToken(
+    userLastLoginAt: number,
+    email: string,
+    userId: string,
+    secret: string,
+    ttlSeconds: number = SESSION_TTL_SECONDS
+): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
     const payload: SessionPayload = {
         v: 1,
         sub: userId,
         email,
         iat: now,
-        exp: now + SESSION_TTL,
+        exp: now + ttlSeconds,
         aud: 'session',
         iss: 'researchroomies'
     };

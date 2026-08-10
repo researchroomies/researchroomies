@@ -11,6 +11,12 @@ compatibility_date = "2025-08-26"
 # already registered with a non-.edu address loses the ability to log in.
 RESTRICT_EDU_EMAILS = "false"
 
+# Public Cloudflare Turnstile sitekey. This is the ONLY definition of it: the
+# Worker reads it from env, and eleventy.config.js reads it back out of this
+# file to expose it to the .njk widgets. Rotating the widget is one edit here.
+# The matching TURNSTILE_SECRET_KEY is a secret and must NOT be added here.
+TURNSTILE_SITE_KEY = "0x4AAAAAAByAHmDummOs9UGm"
+
 [observability]
 enabled = true
 

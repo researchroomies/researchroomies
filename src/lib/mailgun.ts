@@ -1,7 +1,4 @@
-const MAILGUN_DOMAIN = "researchroomies.com";
-// Region-specific. EU-region domains must use https://api.eu.mailgun.net/v3.
-const MAILGUN_API_BASE = "https://api.mailgun.net/v3";
-const ADMIN_EMAIL = "admin@researchroomies.com";
+import { formatTtlMinutes, getConfig, type AppConfig } from "./config";
 
 interface MailgunMessage {
     to: string;
@@ -16,17 +13,17 @@ interface MailgunMessage {
 /**
  * MAILGUN_SENDING_KEY is not a key — it is the From address, given either as a
  * bare local part ("login") or in full ("login@example.com"). Misleading name
- * kept for now because it is already set as a deployed secret.
+ * kept for now because it is already set as a deployed secret; `config.ts`
+ * normalizes it to a full address, or to null when it is unset.
  */
-function resolveFromAddress(env: Env, fromLocalPart: string): string {
-    const configured = env.MAILGUN_SENDING_KEY;
-    if (!configured) return `${fromLocalPart}@${MAILGUN_DOMAIN}`;
-    return configured.includes("@") ? configured : `${configured}@${MAILGUN_DOMAIN}`;
+function resolveFromAddress(config: AppConfig, fromLocalPart: string): string {
+    return config.mailgun.from ?? `${fromLocalPart}@${config.mailgun.domain}`;
 }
 
 async function sendMailgunMessage(message: MailgunMessage, env: Env): Promise<boolean> {
+    const config = getConfig(env);
     const formData = new FormData();
-    formData.append("from", `Research Roomies <${resolveFromAddress(env, message.fromLocalPart)}>`);
+    formData.append("from", `Research Roomies <${resolveFromAddress(config, message.fromLocalPart)}>`);
     formData.append("to", message.to);
     if (message.replyTo) {
         formData.append("h:Reply-To", message.replyTo);
@@ -38,7 +35,7 @@ async function sendMailgunMessage(message: MailgunMessage, env: Env): Promise<bo
     const auth = btoa(`api:${env.MAILGUN_API_KEY}`);
 
     try {
-        const resp = await fetch(`${MAILGUN_API_BASE}/${MAILGUN_DOMAIN}/messages`, {
+        const resp = await fetch(`${config.mailgun.apiBase}/${config.mailgun.domain}/messages`, {
             method: "POST",
             headers: {
                 Authorization: `Basic ${auth}`,
@@ -63,6 +60,10 @@ export async function sendMagicLink(
     link: string,
     env: Env
 ): Promise<boolean> {
+    // Read from the same constant the token's `exp` is built from, so the copy
+    // cannot promise a lifetime the link does not have.
+    const validFor = formatTtlMinutes(getConfig(env).magicLinkTtlSeconds);
+
     return sendMailgunMessage({
         fromLocalPart: "login",
         to: email,
@@ -72,14 +73,14 @@ export async function sendMagicLink(
 Click the link below to finish logging in:
 ${link}
 
-This link is valid for 15 minutes.
+This link is valid for ${validFor}.
 `,
         html: `<html>
   <body>
     <h3>Welcome to Research Roomies!</h3>
     <p>Click the link below to finish logging in:</p>
     <p><a href="${link}">${link}</a></p>
-    <p>This link is valid for 15 minutes.</p>
+    <p>This link is valid for ${validFor}.</p>
   </body>
 </html>`,
     }, env);
@@ -102,11 +103,14 @@ export async function sendReportEmail(
     reporterEmail: string,
     env: Env
 ): Promise<boolean> {
-    const postUrl = `https://researchroomies.com/post/${postId}`;
+    // No request in hand here, so `origin` resolves to APP_ORIGIN or the
+    // production default — the same absolute link this always produced.
+    const config = getConfig(env);
+    const postUrl = `${config.origin}/post/${postId}`;
 
     return sendMailgunMessage({
         fromLocalPart: "noreply",
-        to: ADMIN_EMAIL,
+        to: config.adminEmail,
         subject: `Post reported: ${postTitle}`,
         text: `A post has been reported on Research Roomies.\n\nPost: ${postTitle} (#${postId})\nLink: ${postUrl}\nReason: ${reason}\nReported by: ${reporterEmail}\n`,
         html: `<html>

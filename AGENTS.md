@@ -42,6 +42,7 @@ researchroomies/
 │   │   ├── posts.ts          # Author-only post edit/delete
 │   │   └── flags.ts          # Post reporting
 │   └── lib/
+│       ├── config.ts         # getConfig() – origin, TTLs, sitekey, Mailgun, admin email
 │       ├── auth.ts           # Token generation/verification (HMAC-SHA256), .edu gate
 │       ├── session.ts        # getSessionUser() / sessionUserId() – cookie → payload
 │       ├── html.ts           # escapeHtml, date formatting, renderFullPage, summarize
@@ -172,7 +173,7 @@ To add a new route: export a handler from a file in `src/routes/`, then add a `{
 
 - Cookie name: `rr_session`
 - Format: `{base64url(JSON payload)}.{HMAC-SHA256 signature}`
-- TTL: 30 days
+- TTL: 30 days — `SESSION_TTL_SECONDS` in `src/lib/config.ts`, the single definition behind both the cookie's `Max-Age` and the token's `exp`
 - Attributes: `HttpOnly; Secure; SameSite=Lax; Path=/`
 
 ### Verifying a session in a handler
@@ -304,11 +305,16 @@ The `renderFullPage()` function in `src/lib/html.ts` is a separate copy of this 
 
 ## Cloudflare Turnstile (CAPTCHA)
 
-Site key hardcoded in templates: `0x4AAAAAAByAHmDummOs9UGm`  
-Secret key: `env.TURNSTILE_SECRET_KEY`  
+Site key: `TURNSTILE_SITE_KEY` in `[vars]` in `wrangler.toml` — **the single definition**. It used to be a literal repeated at four sites across two languages, so rotating the widget took four edits.  
+Secret key: `env.TURNSTILE_SECRET_KEY` (a secret; never move it into `[vars]`)  
 Verification endpoint: `https://challenges.cloudflare.com/turnstile/v0/siteverify`
 
-The client script is loaded once in `templates/layouts/base.njk` and in `renderFullPage()`, so any page gets a working widget just by emitting `<div class="cf-turnstile" data-sitekey="...">`.
+Two consumers read that one var:
+
+- **Worker-rendered forms** call `turnstileWidget(env)` from `src/lib/turnstile.ts`, which emits the whole `<div class="cf-turnstile">`. Never write the div by hand.
+- **Eleventy pages** use `{{ turnstileSiteKey }}`, an Eleventy global. `eleventy.config.js` reads it back out of `wrangler.toml` at build time and **throws if it is missing**, so `npm run deploy` (which builds first) cannot ship a dead widget.
+
+The client script is loaded once in `templates/layouts/base.njk` and in `renderFullPage()`, so any page gets a working widget just by emitting the div.
 
 Always verify with `verifyTurnstile(token, request, env)` from `src/lib/turnstile.ts`. **A missing token is a failure, not a skip.** Handlers used to guard with `if (token) { verify }`, which meant anything omitting the field passed unchallenged — and since the script was only loaded on `/login`, that was every create-post and inquiry submission.
 
@@ -318,9 +324,9 @@ Required on: login, post creation, message sending, post reporting.
 
 ## Email (Mailgun)
 
-**Domain:** `researchroomies.com`  
+**Domain:** `config.mailgun.domain` — `researchroomies.com` unless `MAILGUN_DOMAIN` overrides it  
 **API key:** `env.MAILGUN_API_KEY`  
-**Sending address:** determined by `env.MAILGUN_SENDING_KEY` (if set to a full address, used as-is; if set to a local part, appended with `@researchroomies.com`)
+**Sending address:** determined by `env.MAILGUN_SENDING_KEY`. ⚠️ **This variable is misnamed: it is a From address, not a key.** If set to a full address it is used as-is; if set to a bare local part (`login`) the Mailgun domain is appended. When it is unset each message falls back to its own local part — `login@` for the magic link, `noreply@` for everything else. `getConfig()` normalizes it to `config.mailgun.from` (a full address, or `null` for "use the per-message local part"). The name is kept only because renaming it means rotating a deployed secret.
 
 **Functions in `src/lib/mailgun.ts`:**
 - `sendMagicLink(email, link, env)` — login email. Never log the `link`; it carries a valid login token.
@@ -339,8 +345,8 @@ All of these return `boolean` rather than throwing, so callers must check the re
 |---|---|
 | `AUTH_HMAC_SECRET` | Secret for signing/verifying magic link and session tokens |
 | `MAILGUN_API_KEY` | Mailgun API key |
-| `MAILGUN_SENDING_KEY` | Sending address or local part (e.g. `login`) |
-| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key |
+| `MAILGUN_SENDING_KEY` | **Not a key** — the From address, or its local part (e.g. `login`). See the Email section |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key. Stays a secret; never move it into `[vars]` |
 
 Set via `wrangler secret put <VAR>` for production. For local dev, add to `.dev.vars` (not committed).
 
@@ -351,6 +357,27 @@ Declared in `[vars]` in `wrangler.toml`, committed, and changed by editing that 
 | Variable | Default | Purpose |
 |---|---|---|
 | `RESTRICT_EDU_EMAILS` | `"false"` | `"true"` limits accounts to addresses ending in `.edu` |
+| `TURNSTILE_SITE_KEY` | — (required) | Public Turnstile sitekey. The one definition; both the Worker and the Eleventy build read it |
+
+### Optional overrides
+
+Read by `getConfig()` in `src/lib/config.ts`. **None of these are set today**, and every default reproduces the literal that used to be hardcoded, so leaving them unset is exactly current production behaviour. Add to `[vars]` (or pass `--var` in dev) only when standing up a second environment.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APP_ORIGIN` | the origin of the request being served | Origin used to build emailed links. Overriding pins it; leaving it unset means a staging deployment links to itself |
+| `MAILGUN_DOMAIN` | `researchroomies.com` | Mailgun sending domain |
+| `MAILGUN_API_BASE` | `https://api.mailgun.net/v3` | Region-specific; EU domains need `https://api.eu.mailgun.net/v3` |
+| `ADMIN_EMAIL` | `admin@researchroomies.com` | Abuse-report recipient and the contact address in error copy |
+
+### Configuration module
+
+`src/lib/config.ts` is the only place a deployment literal is defined. `getConfig(env, request?)` returns `origin`, `sessionTtlSeconds`, `magicLinkTtlSeconds`, `turnstileSiteKey`, `mailgun` and `adminEmail`.
+
+Two rules follow from why it exists:
+
+- **The session TTL is defined once** (`SESSION_TTL_SECONDS`). The session cookie's `Max-Age` and the token's `exp` used to come from two independent 30-day constants in two files, agreeing by coincidence. `handleAuthCallback` now derives both from one local. If they ever diverge, users are silently logged out — never reintroduce a second constant.
+- **The origin is derived, not hardcoded.** `APP_ORIGIN` if set, otherwise `new URL(request.url).origin`. Callers with no request in hand (`sendReportEmail`) fall back to the production default, which is what those absolute links always were.
 
 The gate lives in `isEmailAllowed()` (`src/lib/auth.ts`) and is applied in both `handleAuthStart` and `handleAuthCallback`. It fails open — any value other than the literal string `"true"`, including the var being absent, allows all addresses. Override locally with `npx wrangler dev --var RESTRICT_EDU_EMAILS:true`.
 
@@ -370,6 +397,20 @@ npm run cf-typegen # Regenerate Env type from wrangler.toml
 
 **Important:** `npm run dev` serves the Worker but does NOT auto-rebuild Eleventy templates. If you change a `.njk` file, run `npm run build` separately, then restart `wrangler dev`.
 
+### `wrangler dev` rewrites the request host
+
+Because `wrangler.toml` declares `[[routes]] pattern = "researchroomies.com"`, `wrangler dev` synthesizes the request URL from that route (`--local-upstream` defaults to "dev.host or route"). Inside the Worker, `new URL(request.url).origin` is therefore `http://researchroomies.com` even though you connected to `localhost:8787` — so a magic link generated by plain `npm run dev` is **not** clickable locally. To exercise the login flow end-to-end, pin the origin:
+
+```bash
+npx wrangler dev --port 8787 --local-upstream localhost:8787 --upstream-protocol http
+# or, equivalently for links only:
+npx wrangler dev --port 8787 --var APP_ORIGIN:http://localhost:8787
+```
+
+The host must include the port; `--local-upstream localhost` yields `http://localhost` with the port dropped.
+
+**Never point a local run at the real Mailgun API while testing the login or report flows** — `.dev.vars` holds a live key and third parties receive whatever you send. Stub it instead: `--var MAILGUN_API_BASE:http://127.0.0.1:8899/v3` and run any HTTP server on that port to capture the multipart body. Pair it with Cloudflare's always-passing Turnstile test secret, `--var TURNSTILE_SECRET_KEY:1x0000000000000000000000000000000AA`, so forms submit without a browser. CLI `--var` does override `.dev.vars`.
+
 ---
 
 ## Testing
@@ -382,6 +423,7 @@ npm run cf-typegen # Regenerate Env type from wrangler.toml
 | `test/routing.test.ts` | Router matching, path params, trailing-slash behaviour |
 | `test/params.test.ts` | `parseRouteId()` — rejects `12abc`, `0`, negatives, oversized ids |
 | `test/assets.test.ts` | Every route in `ROUTES` is unshadowed by `public/` and covered by `run_worker_first` |
+| `test/config.test.ts` | `getConfig()` defaults (each one pins a literal that used to be hardcoded), origin derivation and `APP_ORIGIN` override, `magicLinkUrl()`, Mailgun From resolution, and that the session token's `exp - iat` equals `SESSION_TTL_SECONDS` |
 
 **Two vitest projects.** `vitest.config.mts` declares a `workers` project (runs in
 workerd via `@cloudflare/vitest-pool-workers`) and a `node` project for

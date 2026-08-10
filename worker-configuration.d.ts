@@ -6,10 +6,15 @@ declare namespace Cloudflare {
         DB: D1Database;
         ASSETS: Fetcher;
         MAILGUN_API_KEY: string;
-        MAILGUN_SENDING_KEY?: string; // Optional, defaults to login@researchroomies.com logic
+        MAILGUN_SENDING_KEY?: string; // Not a key — the From address, as a local part ("login") or in full. Optional; defaults to login@/noreply@ at MAILGUN_DOMAIN
         AUTH_HMAC_SECRET: string;
         TURNSTILE_SECRET_KEY: string;
+        TURNSTILE_SITE_KEY: string; // Public sitekey; declared in [vars] in wrangler.toml, which is its single definition
         RESTRICT_EDU_EMAILS?: string; // "true" enables the .edu-only gate; anything else (or absent) is off
+        APP_ORIGIN?: string; // Overrides the origin used in emailed links; unset means "use the origin of the request being served"
+        MAILGUN_DOMAIN?: string; // Optional, defaults to researchroomies.com
+        MAILGUN_API_BASE?: string; // Optional, defaults to https://api.mailgun.net/v3 (EU-region domains need api.eu.mailgun.net)
+        ADMIN_EMAIL?: string; // Optional, defaults to admin@researchroomies.com — recipient of abuse reports and the contact address in error copy
     }
 }
 interface Env extends Cloudflare.Env { }
