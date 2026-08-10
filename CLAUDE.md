@@ -18,9 +18,33 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 
 ---
 
-## Current State — updated 2026-08-04
+## Current State — updated 2026-08-10
 
 Eric Burkholder's first feedback round is fully implemented, and the follow-up review of that work has been closed out. Verified with 72 end-to-end assertions against `wrangler dev` plus the unit suite; `tsc --noEmit` and `npm run build` are clean.
+
+### Trailing-slash 404 on every Worker route — fixed 2026-08-10
+
+Reported as "search only works when logged in." Search has **no** login
+dependence: `/search` is byte-identical with and without a session cookie
+(verified by diffing responses against `wrangler dev` with a minted session),
+and anonymous search returns results on production. The real fault was the URL,
+not the session.
+
+Routes are registered without a trailing slash and `Router.match()` anchors its
+pattern with `$`, so `/search/` missed the router, fell through to
+`env.ASSETS.fetch()`, and hit `not_found_handling = "404-page"`. This affected
+every Worker route — `/my-posts/`, `/post/:id/`, `/subject/:slug/` all 404'd.
+
+`/search/` is not a hypothetical URL: Eleventy emits directory-style pages, so
+that is exactly where the old static search page lived, and it persists in
+bookmarks, history and URL autocomplete. Which form you land on is per-browser-
+profile, which is what made it look correlated with login state.
+
+`src/index.ts` now redirects `308` to the canonical slashless path, but **only
+when trimming reveals a registered Worker route** — real assets are
+directory-style (`/about/`, `/login/`), so those must keep falling through
+untouched. 308 rather than 301 so POST routes like `/post/:id/edit/` do not
+degrade into a GET. Covered by `test/routing.test.ts`.
 
 ### Feedback round 1 — all closed
 
@@ -69,6 +93,9 @@ The gate is implemented and off by default, so this is now a config decision rat
 
 ## Backlog
 
+- **`www.researchroomies.com` returns 522 for every path.** Only the apex is bound: `[[routes]]` in `wrangler.toml` has `pattern = "researchroomies.com"` with no `www` record or redirect. Found while diagnosing the search report; unrelated to search, but any inbound `www` link is currently dead.
+- **Production `tags` drift from `db/schema.sql`.** Prod serves 5 tags with short slugs (`bio`, `chem`, `cs`, `math`, `physics`); the schema seeds 12 with long ones (`biology`, `chemistry`, `computer-science`, …). Re-running `db/schema.sql` against prod would *add* the 12 rather than reconcile, leaving a duplicated subject list. Decide which slug set is canonical and migrate before re-running the seed.
+- **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users.
 - **Moderation review.** `flags` rows are written and emailed to `admin@researchroomies.com`, but there is no in-app review UI. That needs an admin concept (`users.is_admin` or similar), which the schema does not have.
 - **Structured locations.** `countries` / `states` / `cities` and `conferences.city_id` remain intentionally dormant; city/state are free text. Revisit if location-based search is wanted.
 - **Editing conference details.** Posts are editable; the conference a post belongs to is not.
@@ -82,6 +109,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 ## Architecture Notes
 
 - **Asset routing precedence (the big footgun).** Cloudflare serves a matching static asset *before* invoking the Worker. Adding `templates/pages/foo.njk` will silently shadow a `GET /foo` Worker route — this is exactly how `/search` broke. Either don't create the template, or add the path to `run_worker_first` in `wrangler.toml`.
+- **Trailing slashes.** Worker routes are slashless and `Router.match()` is `$`-anchored. `src/index.ts` redirects `/foo/` → `/foo` with a 308, but *only* when the trimmed path is a registered route — Eleventy assets are genuinely directory-style, so `/about/` must keep falling through to `env.ASSETS.fetch()`. Register new routes without a trailing slash and this keeps working.
 - **Static vs. dynamic rendering:** pages in `templates/pages/` are built by Eleventy at deploy time; dynamic content is Worker-rendered or injected via HTMX. `renderFullPage()` in `src/lib/html.ts` is the server-side twin of `templates/layouts/base.njk` — **change both together.**
 - **HTMX pattern:** `/api/components/*` return raw HTML fragments, not JSON.
 - **Session auth:** cookie-based signed tokens, no DB lookup per request. Use `getSessionUser(request, env)` from `src/lib/session.ts`; `sessionUserId(user)` gives the numeric `users.id`. Never trust an id from a form body — re-check ownership against the DB row on every mutating request.

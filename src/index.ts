@@ -67,6 +67,26 @@ export default {
 			return await matched.route.handler(request, env, ctx, matched.params);
 		}
 
+		// Worker routes are registered without a trailing slash, so /search/ used
+		// to fall straight through to the 404 page. That URL is not hypothetical:
+		// Eleventy emitted directory-style pages, so /search/ is where the old
+		// static search page lived, and it survives in bookmarks, browser history
+		// and URL autocomplete. Redirect rather than match silently, so those
+		// stale entries heal and each route keeps one canonical URL.
+		//
+		// Only redirect when trimming actually reveals a Worker route: real assets
+		// ARE directory-style (/about/, /login/), and those must be left alone.
+		if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+			const trimmed = url.pathname.replace(/\/+$/, '');
+			if (trimmed && router.match(request.method, trimmed)) {
+				const target = new URL(url);
+				target.pathname = trimmed;
+				// 308 rather than 301: it preserves the method, so POST routes such
+				// as /post/:id/edit/ do not silently degrade into a GET.
+				return Response.redirect(target.href, 308);
+			}
+		}
+
 		// Anything else is a static asset built by Eleventy into public/.
 		return env.ASSETS.fetch(request);
 	},
