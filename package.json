@@ -8,6 +8,7 @@
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "test": "vitest",
+    "check": "npm run build && vitest run && tsc --noEmit",
     "cf-typegen": "wrangler types"
   },
   "devDependencies": {

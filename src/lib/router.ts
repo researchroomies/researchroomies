@@ -1,4 +1,4 @@
-type Handler = (
+export type Handler = (
   request: Request,
   env: Env,
   ctx: ExecutionContext,

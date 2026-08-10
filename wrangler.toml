@@ -22,7 +22,24 @@ binding = "ASSETS"
 # a Worker route has to either have no matching asset or be listed here.
 # /search regressed exactly this way: templates/pages/search.njk built to
 # public/search/index.html and silently shadowed the GET /search handler.
-run_worker_first = [ "/api/*", "/search", "/my-posts" ]
+#
+# This list must cover every route in src/routes.ts. /conference/*, /subject/*
+# and /post/* were missing and worked only because no Eleventy template happened
+# to build to those paths. test/assets.test.ts now checks the two directions:
+# that nothing in public/ shadows a route, and that every route is claimed here.
+#
+# Rules are anchored at both ends and "*" expands to ".*", so it matches across
+# "/" — "/post/*" covers "/post/1/edit" as well as "/post/1". A rule ending in
+# "*" also makes any other rule sharing its prefix an error, so do not add
+# narrower entries alongside these.
+run_worker_first = [
+  "/api/*",
+  "/search",
+  "/my-posts",
+  "/conference/*",
+  "/subject/*",
+  "/post/*",
+]
 
 [[routes]]
 pattern = "researchroomies.com"

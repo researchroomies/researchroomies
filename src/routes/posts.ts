@@ -1,6 +1,17 @@
 import { getSessionUser, sessionUserId } from "../lib/session";
-import { escapeHtml, renderFullPage } from "../lib/html";
+import { escapeHtml } from "../lib/html";
+import {
+  errorPage,
+  forbiddenPage,
+  notFoundPage,
+  pageResponse,
+} from "../lib/response";
 import { parseRouteId } from "../lib/params";
+
+/** These three pages used to be private to this file; api.ts and flags.ts each
+ * hand-rolled their own copies. They now come from lib/response. */
+const postNotFound = () => notFoundPage("Post");
+const notYourPost = () => forbiddenPage("You can only edit your own posts.");
 
 interface PostForEdit {
   id: number;
@@ -26,36 +37,6 @@ function parsePostId(params?: Record<string, string>): number | null {
   return parseRouteId(params?.id);
 }
 
-function notFoundPage(): Response {
-  return new Response(
-    renderFullPage(
-      "Post Not Found",
-      `<div class="site-page"><h2>Post Not Found</h2><p>The requested post could not be found.</p></div>`,
-    ),
-    { status: 404, headers: { "Content-Type": "text/html" } },
-  );
-}
-
-function forbiddenPage(): Response {
-  return new Response(
-    renderFullPage(
-      "Forbidden",
-      `<div class="site-page"><h2>Forbidden</h2><p>You can only edit your own posts.</p></div>`,
-    ),
-    { status: 403, headers: { "Content-Type": "text/html" } },
-  );
-}
-
-function errorPage(): Response {
-  return new Response(
-    renderFullPage(
-      "Error",
-      `<div class="site-page"><h2>Error</h2><p>Something went wrong. Please try again later.</p></div>`,
-    ),
-    { status: 500, headers: { "Content-Type": "text/html" } },
-  );
-}
-
 export async function handleEditPostForm(
   request: Request,
   env: Env,
@@ -69,7 +50,7 @@ export async function handleEditPostForm(
 
   const id = parsePostId(params);
   if (id === null) {
-    return notFoundPage();
+    return postNotFound();
   }
 
   try {
@@ -85,11 +66,11 @@ export async function handleEditPostForm(
       .first<PostForEdit>();
 
     if (!post) {
-      return notFoundPage();
+      return postNotFound();
     }
 
     if (post.user_id !== sessionUserId(user)) {
-      return forbiddenPage();
+      return notYourPost();
     }
 
     const content = `
@@ -111,12 +92,7 @@ export async function handleEditPostForm(
       </div>
     `;
 
-    return new Response(renderFullPage("Edit Post", content), {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "private, no-cache",
-      },
-    });
+    return pageResponse("Edit Post", content);
   } catch (error) {
     console.error("Error loading post for edit:", error);
     return errorPage();
@@ -140,7 +116,7 @@ export async function handleEditPostSubmit(
 
   const id = parsePostId(params);
   if (id === null) {
-    return notFoundPage();
+    return postNotFound();
   }
 
   try {
@@ -149,11 +125,11 @@ export async function handleEditPostSubmit(
       .first<PostOwner>();
 
     if (!post) {
-      return notFoundPage();
+      return postNotFound();
     }
 
     if (post.user_id !== sessionUserId(user)) {
-      return forbiddenPage();
+      return notYourPost();
     }
 
     const formData = await request.formData();
@@ -193,7 +169,7 @@ export async function handleDeletePostConfirm(
 
   const id = parsePostId(params);
   if (id === null) {
-    return notFoundPage();
+    return postNotFound();
   }
 
   try {
@@ -204,11 +180,11 @@ export async function handleDeletePostConfirm(
       .first<PostForDelete>();
 
     if (!post) {
-      return notFoundPage();
+      return postNotFound();
     }
 
     if (post.user_id !== sessionUserId(user)) {
-      return forbiddenPage();
+      return notYourPost();
     }
 
     const content = `
@@ -222,12 +198,7 @@ export async function handleDeletePostConfirm(
       </div>
     `;
 
-    return new Response(renderFullPage("Delete Post", content), {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "private, no-cache",
-      },
-    });
+    return pageResponse("Delete Post", content);
   } catch (error) {
     console.error("Error loading post for delete confirmation:", error);
     return errorPage();
@@ -251,7 +222,7 @@ export async function handleDeletePostSubmit(
 
   const id = parsePostId(params);
   if (id === null) {
-    return notFoundPage();
+    return postNotFound();
   }
 
   try {
@@ -260,11 +231,11 @@ export async function handleDeletePostSubmit(
       .first<PostOwner>();
 
     if (!post) {
-      return notFoundPage();
+      return postNotFound();
     }
 
     if (post.user_id !== sessionUserId(user)) {
-      return forbiddenPage();
+      return notYourPost();
     }
 
     const userId = sessionUserId(user);

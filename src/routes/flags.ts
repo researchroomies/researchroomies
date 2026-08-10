@@ -1,7 +1,8 @@
 import { sendReportEmail } from "../lib/mailgun";
 import { getSessionUser } from "../lib/session";
 import { verifyTurnstile } from "../lib/turnstile";
-import { escapeHtml, renderFullPage } from "../lib/html";
+import { escapeHtml } from "../lib/html";
+import { errorPage, notFoundPage, pageResponse } from "../lib/response";
 import { parseRouteId } from "../lib/params";
 
 interface ReportablePost {
@@ -63,12 +64,13 @@ export async function handleReportForm(
 
   const parsedPostId = parseRouteId(params?.id);
   if (parsedPostId === null) {
-    return new Response(
-      renderFullPage(
-        "Error",
-        `<div class="site-page"><h2>Error</h2><p>Post ID is required.</p></div>`,
-      ),
-      { status: 400, headers: { "Content-Type": "text/html" } },
+    // Deliberately 400 rather than notFoundPage()'s 404: posts.ts answers the
+    // same condition with a 404 and the two should probably agree, but that is
+    // a behaviour decision, not part of this response-plumbing change.
+    return pageResponse(
+      "Error",
+      `<div class="site-page"><h2>Error</h2><p>Post ID is required.</p></div>`,
+      { status: 400, cache: "none" },
     );
   }
 
@@ -85,32 +87,15 @@ export async function handleReportForm(
       .first<ReportablePost>();
 
     if (!post) {
-      return new Response(
-        renderFullPage(
-          "Post Not Found",
-          `<div class="site-page"><h2>Post Not Found</h2><p>The post you are trying to report could not be found.</p></div>`,
-        ),
-        { status: 404, headers: { "Content-Type": "text/html" } },
-      );
+      return notFoundPage("Post");
     }
 
     const content = renderReportForm(post);
 
-    return new Response(renderFullPage("Report Post", content), {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "private, no-cache",
-      },
-    });
+    return pageResponse("Report Post", content);
   } catch (error) {
     console.error("Error loading report form:", error);
-    return new Response(
-      renderFullPage(
-        "Error",
-        `<div class="site-page"><h2>Error</h2><p>Failed to load the report form. Please try again later.</p></div>`,
-      ),
-      { status: 500, headers: { "Content-Type": "text/html" } },
-    );
+    return errorPage();
   }
 }
 
@@ -161,13 +146,7 @@ export async function handleReportSubmit(
       .first<{ id: number; title: string }>();
 
     if (!post) {
-      return new Response(
-        renderFullPage(
-          "Post Not Found",
-          `<div class="site-page"><h2>Post Not Found</h2><p>The post you are trying to report could not be found.</p></div>`,
-        ),
-        { status: 404, headers: { "Content-Type": "text/html" } },
-      );
+      return notFoundPage("Post");
     }
 
     const combinedReason = details ? `${reason}: ${details}` : reason;
@@ -202,20 +181,9 @@ export async function handleReportSubmit(
       </div>
     `;
 
-    return new Response(renderFullPage("Report Received", content), {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-    });
+    return pageResponse("Report Received", content, { cache: "none" });
   } catch (error) {
     console.error("Error submitting report:", error);
-    return new Response(
-      renderFullPage(
-        "Error",
-        `<div class="site-page"><h2>Error</h2><p>Failed to submit your report. Please try again later.</p></div>`,
-      ),
-      { status: 500, headers: { "Content-Type": "text/html" } },
-    );
+    return errorPage();
   }
 }

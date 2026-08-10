@@ -5,9 +5,14 @@ import {
   escapeHtml,
   formatDate,
   formatDateRange,
-  renderFullPage,
   summarize,
 } from "../lib/html";
+import {
+  errorPage,
+  fragmentResponse,
+  notFoundPage,
+  pageResponse,
+} from "../lib/response";
 import { parseRouteId } from "../lib/params";
 
 interface Conference {
@@ -175,20 +180,12 @@ export async function handleFeaturedConferences(
     const conferences = await getFeaturedConferences(env);
     const html = renderFeaturedConferences(conferences);
 
-    return new Response(html, {
-      headers: {
-        "Content-Type": "text/html",
-        "Cache-Control": "public, max-age=300", // Cache for 5 minutes
-      },
-    });
+    return fragmentResponse(html, { cache: "public-short" });
   } catch (error) {
     console.error("Error fetching featured conferences:", error);
-    return new Response(
+    return fragmentResponse(
       "<p>Error loading featured conferences. Please try again later.</p>",
-      {
-        status: 500,
-        headers: { "Content-Type": "text/html" },
-      },
+      { status: 500, cache: "none" },
     );
   }
 }
@@ -202,30 +199,18 @@ export async function handleConferencePage(
   try {
     const slug = params?.slug;
     if (!slug) {
-      return new Response(
-        renderFullPage(
-          "Error",
-          "<h2>Error</h2><p>Conference slug is required</p>",
-        ),
-        {
-          status: 400,
-          headers: { "Content-Type": "text/html" },
-        },
+      // Kept as 400 rather than notFoundPage()'s 404: the route cannot match
+      // without a slug segment, so this is an unreachable guard, not a miss.
+      return pageResponse(
+        "Error",
+        `<div class="site-page"><h2>Error</h2><p>Conference slug is required</p></div>`,
+        { status: 400, cache: "none" },
       );
     }
 
     const conference = await getConferenceBySlug(env, decodeURIComponent(slug));
     if (!conference) {
-      return new Response(
-        renderFullPage(
-          "Conference Not Found",
-          "<h2>Conference Not Found</h2><p>The requested conference could not be found.</p>",
-        ),
-        {
-          status: 404,
-          headers: { "Content-Type": "text/html" },
-        },
-      );
+      return notFoundPage("Conference");
     }
 
     const [posts, tags] = await Promise.all([
@@ -233,26 +218,11 @@ export async function handleConferencePage(
       getTagsForConference(env, conference.id),
     ]);
     const content = renderConferencePage(conference, posts, tags);
-    const fullHtml = renderFullPage(conference.name, content);
 
-    return new Response(fullHtml, {
-      headers: {
-        "Content-Type": "text/html",
-        "Cache-Control": "public, max-age=300", // Cache for 5 minutes
-      },
-    });
+    return pageResponse(conference.name, content, { cache: "public-short" });
   } catch (error) {
     console.error("Error fetching conference:", error);
-    return new Response(
-      renderFullPage(
-        "Error",
-        "<h2>Error</h2><p>Error loading conference. Please try again later.</p>",
-      ),
-      {
-        status: 500,
-        headers: { "Content-Type": "text/html" },
-      },
-    );
+    return errorPage();
   }
 }
 
@@ -282,12 +252,8 @@ export async function handleComponentCreateFormAuth(
   }
 
   const html = `<div id="auth-email-container"><label>Email</label><input type="email" name="email" value="${escapeHtml(user.email)}" readonly /></div>`;
-  return new Response(html, {
-    headers: {
-      "Content-Type": "text/html",
-      "Cache-Control": "private, no-cache",
-    },
-  });
+  // Contains the viewer's own email address — private is the default here.
+  return fragmentResponse(html);
 }
 
 export async function handleComponentConferenceOptions(
@@ -306,20 +272,12 @@ export async function handleComponentConferenceOptions(
     const html =
       optionsHtml + '<option value="new">Create New Conference</option>';
 
-    return new Response(html, {
-      headers: {
-        "Content-Type": "text/html",
-        "Cache-Control": "public, max-age=300",
-      },
-    });
+    return fragmentResponse(html, { cache: "public-short" });
   } catch (error) {
     console.error("Error fetching conferences:", error);
-    return new Response(
+    return fragmentResponse(
       '<option value="new">Error loading conferences. Create New Conference.</option>',
-      {
-        status: 500,
-        headers: { "Content-Type": "text/html" },
-      },
+      { status: 500, cache: "none" },
     );
   }
 }
@@ -339,15 +297,10 @@ export async function handleComponentNavSubjects(
       )
       .join("");
 
-    return new Response(html, {
-      headers: {
-        "Content-Type": "text/html",
-        "Cache-Control": "public, max-age=3600",
-      },
-    });
+    return fragmentResponse(html, { cache: "public-long" });
   } catch (error) {
     console.error("Error fetching nav subjects:", error);
-    return new Response("", { headers: { "Content-Type": "text/html" } });
+    return fragmentResponse("", { cache: "none" });
   }
 }
 
@@ -373,17 +326,12 @@ export async function handleComponentTagOptions(
         )
         .join("");
 
-    return new Response(html, {
-      headers: {
-        "Content-Type": "text/html",
-        "Cache-Control": "public, max-age=3600",
-      },
-    });
+    return fragmentResponse(html, { cache: "public-long" });
   } catch (error) {
     console.error("Error fetching tag options:", error);
-    return new Response('<option value="">Subject</option>', {
+    return fragmentResponse('<option value="">Subject</option>', {
       status: 500,
-      headers: { "Content-Type": "text/html" },
+      cache: "none",
     });
   }
 }
@@ -742,26 +690,14 @@ export async function handlePostPage(
 ): Promise<Response> {
   const postId = parseRouteId(params?.id);
   if (postId === null) {
-    return new Response(
-      renderFullPage(
-        "Post Not Found",
-        `<div class="site-page"><h2>Post Not Found</h2><p>The requested post could not be found. <a href="/search">Browse all posts</a> instead.</p></div>`,
-      ),
-      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
-    );
+    return notFoundPage("Post");
   }
 
   try {
     const post = await getPostDetail(env, postId);
 
     if (!post) {
-      return new Response(
-        renderFullPage(
-          "Post Not Found",
-          `<div class="site-page"><h2>Post Not Found</h2><p>The requested post could not be found. <a href="/search">Browse all posts</a> instead.</p></div>`,
-        ),
-        { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
-      );
+      return notFoundPage("Post");
     }
 
     const user = await getSessionUser(request, env);
@@ -773,30 +709,15 @@ export async function handlePostPage(
       sent: url.searchParams.get("sent") === "1",
     })}</div>`;
 
-    return new Response(
-      renderFullPage(post.title, content, {
-        description: summarize(
-          `${post.description} · ${post.conference_name}`,
-        ),
-        canonicalUrl: `${url.origin}/post/${post.id}`,
-      }),
-      {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          // Varies by viewer (author actions, logged-out prompt) — never shared.
-          "Cache-Control": "private, no-cache",
-        },
-      },
-    );
+    // Varies by viewer (author actions, logged-out prompt) — never shared, which
+    // is pageResponse()'s default.
+    return pageResponse(post.title, content, {
+      description: summarize(`${post.description} · ${post.conference_name}`),
+      canonicalUrl: `${url.origin}/post/${post.id}`,
+    });
   } catch (error) {
     console.error("Error fetching post:", error);
-    return new Response(
-      renderFullPage(
-        "Error",
-        `<div class="site-page"><h2>Error</h2><p>Failed to load this post. Please try again later.</p></div>`,
-      ),
-      { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } },
-    );
+    return errorPage();
   }
 }
 
@@ -815,9 +736,9 @@ export async function handleComponentPost(
 ): Promise<Response> {
   const postId = parseRouteId(params?.id);
   if (postId === null) {
-    return new Response("<p>Post not found.</p>", {
+    return fragmentResponse("<p>Post not found.</p>", {
       status: 404,
-      headers: { "Content-Type": "text/html" },
+      cache: "none",
     });
   }
 
@@ -825,9 +746,9 @@ export async function handleComponentPost(
     const post = await getPostDetail(env, postId);
 
     if (!post) {
-      return new Response("<p>Post not found.</p>", {
+      return fragmentResponse("<p>Post not found.</p>", {
         status: 404,
-        headers: { "Content-Type": "text/html" },
+        cache: "none",
       });
     }
 
@@ -839,18 +760,13 @@ export async function handleComponentPost(
       sent: new URL(request.url).searchParams.get("sent") === "1",
     });
 
-    return new Response(html, {
-      headers: {
-        "Content-Type": "text/html",
-        // Varies by viewer (author actions, logged-out prompt) — never shared.
-        "Cache-Control": "private, no-cache",
-      },
-    });
+    // Varies by viewer (author actions, logged-out prompt) — never shared.
+    return fragmentResponse(html);
   } catch (error) {
     console.error("Error fetching post:", error);
-    return new Response("<p>Error loading post.</p>", {
+    return fragmentResponse("<p>Error loading post.</p>", {
       status: 500,
-      headers: { "Content-Type": "text/html" },
+      cache: "none",
     });
   }
 }
@@ -866,12 +782,9 @@ export async function handleComponentNavUser(
     ? `<a href="/my-posts" class="nav-link">My Posts</a> <a href="#" hx-post="/api/auth/logout" class="nav-link">Logout</a>`
     : `<a href="/login" class="nav-link">Login</a>`;
 
-  return new Response(html, {
-    headers: {
-      "Content-Type": "text/html",
-      "Cache-Control": "private, no-cache",
-    },
-  });
+  // The whole point of this fragment is that it differs per session. It must
+  // never be cached publicly — which is why 'private' is the default.
+  return fragmentResponse(html);
 }
 
 export async function handleMyPosts(
@@ -946,24 +859,10 @@ export async function handleMyPosts(
       </div>
     `;
 
-    return new Response(renderFullPage("My Posts", content), {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "private, no-cache",
-      },
-    });
+    return pageResponse("My Posts", content);
   } catch (error) {
     console.error("Error fetching my posts:", error);
-    return new Response(
-      renderFullPage(
-        "Error",
-        `<div class="site-page"><h2>Error</h2><p>Failed to load your posts. Please try again later.</p></div>`,
-      ),
-      {
-        status: 500,
-        headers: { "Content-Type": "text/html" },
-      },
-    );
+    return errorPage();
   }
 }
 
@@ -1104,12 +1003,7 @@ export async function handleSearch(
     </div>
   `;
 
-  return new Response(renderFullPage("Search", content), {
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
+  return pageResponse("Search", content, { cache: "none" });
 }
 
 export async function handleSubjectPage(
@@ -1131,13 +1025,7 @@ export async function handleSubjectPage(
       .first<Tag>();
 
     if (!tag) {
-      return new Response(
-        renderFullPage(
-          "Subject Not Found",
-          `<div class="site-page"><h2>Subject Not Found</h2><p>No such subject. <a href="/search">Browse all posts</a> instead.</p></div>`,
-        ),
-        { status: 404, headers: { "Content-Type": "text/html" } },
-      );
+      return notFoundPage("Subject");
     }
 
     const { results } = await env.DB.prepare(
@@ -1180,20 +1068,11 @@ export async function handleSubjectPage(
       </div>
     `;
 
-    return new Response(renderFullPage(`${tag.name} Conferences`, content), {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "public, max-age=300",
-      },
+    return pageResponse(`${tag.name} Conferences`, content, {
+      cache: "public-short",
     });
   } catch (error) {
     console.error("Error loading subject page:", error);
-    return new Response(
-      renderFullPage(
-        "Error",
-        `<div class="site-page"><h2>Error</h2><p>Failed to load this subject. Please try again later.</p></div>`,
-      ),
-      { status: 500, headers: { "Content-Type": "text/html" } },
-    );
+    return errorPage();
   }
 }

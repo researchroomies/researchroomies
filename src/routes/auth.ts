@@ -1,7 +1,7 @@
 import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isEmailAllowed } from '../lib/auth';
 import { sendMagicLink } from '../lib/mailgun';
 import { COOKIE_NAME, getSessionUser } from '../lib/session';
-import { renderFullPage } from '../lib/html';
+import { pageResponse } from '../lib/response';
 
 const APP_ORIGIN = "https://researchroomies.com";
 const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
@@ -9,11 +9,16 @@ const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
 /**
  * The callback is reached by clicking a link in an email, so failures land in
  * a browser address bar and must render a page rather than bare text.
+ *
+ * `heading` and `body` are developer-authored literals below — `body` contains
+ * intentional markup (links back to /login) and is NOT escaped, so nothing
+ * user-supplied may ever be passed here.
  */
 function callbackErrorPage(heading: string, body: string, status: number): Response {
-    return new Response(
-        renderFullPage(heading, `<div class="site-page"><h2>${heading}</h2><p>${body}</p></div>`),
-        { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    return pageResponse(
+        heading,
+        `<div class="site-page"><h2>${heading}</h2><p>${body}</p></div>`,
+        { status, cache: 'none' }
     );
 }
 
