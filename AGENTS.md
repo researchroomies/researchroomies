@@ -32,28 +32,38 @@ Live site: `https://researchroomies.com`
 ```
 researchroomies/
 ├── src/
-│   ├── index.ts              # Worker entry point – route registration + static asset fallback
+│   ├── index.ts              # Worker entry point – route registration, trailing-slash
+│   │                         #   redirect, static asset fallback
 │   ├── routes/
-│   │   ├── api.ts            # All page renders and API handlers
-│   │   └── auth.ts           # Magic link + session handlers
+│   │   ├── api.ts            # Page renders + API handlers
+│   │   ├── auth.ts           # Magic link login/logout/session
+│   │   ├── posts.ts          # Author-only post edit/delete
+│   │   └── flags.ts          # Post reporting
 │   └── lib/
-│       ├── auth.ts           # Token generation/verification (HMAC-SHA256)
-│       ├── mailgun.ts        # Email sending (magic link + inquiry)
+│       ├── auth.ts           # Token generation/verification (HMAC-SHA256), .edu gate
+│       ├── session.ts        # getSessionUser() / sessionUserId() – cookie → payload
+│       ├── html.ts           # escapeHtml, date formatting, renderFullPage, summarize
+│       ├── params.ts         # parseRouteId() – strict numeric route ids
+│       ├── turnstile.ts      # verifyTurnstile()
+│       ├── mailgun.ts        # Email sending (magic link, inquiry, abuse report)
 │       └── router.ts         # Custom path-param router
 ├── templates/
 │   ├── pages/                # Eleventy source pages (Nunjucks .njk)
+│   ├── style/style.css       # Source CSS – copied to public/style/
 │   └── layouts/
 │       └── base.njk          # Base HTML layout (header, footer, HTMX)
-├── public/                   # Eleventy output – DO NOT EDIT DIRECTLY
-│   └── style/style.css       # Compiled from templates/style/style.css
+├── public/                   # Eleventy output – DO NOT EDIT DIRECTLY (gitignored)
 ├── db/
 │   └── schema.sql            # D1 schema (SQLite)
 ├── test/
-│   └── auth_verification.test.ts
+│   ├── auth_verification.test.ts   # Magic link + session token crypto
+│   ├── routing.test.ts             # Router matching + trailing slashes
+│   └── params.test.ts              # parseRouteId()
 ├── wrangler.toml             # Cloudflare config (D1 binding, routes, assets)
+├── vitest.config.mts         # Vitest + @cloudflare/vitest-pool-workers
 ├── eleventy.config.js        # Eleventy config
 ├── package.json
-├── CLAUDE.md                 # Pending implementation plan and architecture notes
+├── CLAUDE.md                 # Current state, open decisions, backlog
 └── AGENTS.md                 # This file
 ```
 
@@ -67,26 +77,38 @@ There are **three distinct rendering modes** in this app. Confusing them is the 
 
 Pages in `templates/pages/` are compiled by Eleventy into `public/` at build time. They are plain HTML files served by Cloudflare via `env.ASSETS.fetch()`. They do not have access to the database or session state at render time.
 
-Examples: `/` (index), `/login`, `/create`, `/search`, `/about`, `/how-it-works`, `/terms`, `/privacy`, `/safety`
+These are all of them: `/` (index), `/login`, `/create`, `/about`, `/how-it-works`, `/terms`, `/privacy`, `/safety`, `/404`.
 
-**The Worker only handles requests whose pathname starts with `/api/`, `/conference/`, or `/post/`** (see `src/index.ts:29`). Everything else is served from `public/`.
+**The Worker decides ownership by asking `router.match()`**, not by path prefix. There is no prefix regex — the old hand-maintained `/^\/(api|conference|post)\//` was deleted precisely because forgetting to add a prefix to it stranded `/my-posts` and `/search` behind a silent 404. Anything the router does not claim falls through to `public/`.
 
 When you edit a `.njk` template, you must run `npm run build` (Eleventy) before deploying. The Worker serves the pre-built `public/` files — it does not compile templates at runtime.
 
 ### 2. Worker-rendered full pages
 
-`/conference/:slug` and `/post/:id` are rendered server-side by the Worker using the `renderFullPage()` helper in `src/routes/api.ts`. This inline renderer duplicates the outer HTML shell from `base.njk`. It does **not** include the `nav-user` HTMX component (the login/logout button), so dynamically rendered pages will not show the user's logged-in state in the nav.
+`/conference/:slug`, `/subject/:slug`, `/post/:id`, `/my-posts`, `/search`, and the post edit/delete/report pages are rendered server-side by the Worker using `renderFullPage()` from `src/lib/html.ts`. It is a hand-maintained twin of `base.njk` and renders the same nav, **including** the `#nav-user-state` and `#nav-subjects` HTMX spans.
 
-When you add a new Worker-rendered page, mirror the structure of `renderFullPage()` and register it in `src/index.ts`.
+Signature:
+
+```typescript
+renderFullPage(title, content, options?: { description?, canonicalUrl? })
+```
+
+`title` is bare — the function appends ` – ResearchRoomies` and escapes it. `options` is the equivalent of `base.njk`'s `{% block head %}`: `description` fills `<meta name="description">` plus the OpenGraph tags, `canonicalUrl` fills `og:url` and `<link rel="canonical">`. Set them on any page with real indexable content; `summarize(text, maxLength)` in the same module collapses whitespace and truncates on a word boundary for that purpose.
+
+When you add a new Worker-rendered page, render it through `renderFullPage()` and register it in `src/index.ts`.
+
+**Do not build a static shell that fetches its own content.** `/post/:id` used to ship "Loading post details…" plus inline JS that re-parsed the id out of `window.location` to call `/api/components/post/:id` — three round trips, and crawlers and link unfurlers got no title or description for the site's primary entity. No page is on that pattern any more.
 
 ### 3. HTMX component fragments
 
 Routes under `/api/components/*` return raw HTML fragments (no `<!DOCTYPE>` wrapper). HTMX swaps these into the DOM. Examples:
 
 - `GET /api/components/nav-user` → login/logout link, swapped into `#nav-user-state`
+- `GET /api/components/nav-subjects` → subject links for the nav
 - `GET /api/components/create-form-auth` → email field for create form (or redirect if unauthenticated)
 - `GET /api/components/conference-options` → `<option>` list for conference dropdown
-- `GET /api/components/post/:id` → full post content + inquiry form
+- `GET /api/components/tag-options` → `<option>` list for subject filters and the create-post picker
+- `GET /api/components/post/:id` → full post content + inquiry form. **No current caller** — kept only so an old `/post/:id` shell still sitting in a browser cache degrades to a working page instead of a dead fetch. It shares `getPostDetail()` and `renderPostDetail()` with `handlePostPage`, so the two cannot drift. Slated for deletion; see the backlog in CLAUDE.md.
 
 These responses should return `Content-Type: text/html` and never JSON.
 
@@ -117,7 +139,7 @@ The `Env` type is generated by `npm run cf-typegen` from `wrangler.toml`.
 | POST | `/api/message/send` | `handleMessageSend` | api.ts |
 | GET | `/conference/:slug` | `handleConferencePage` | api.ts |
 | GET | `/subject/:slug` | `handleSubjectPage` | api.ts |
-| GET | `/post/:id` | `handlePostShell` | api.ts |
+| GET | `/post/:id` | `handlePostPage` | api.ts |
 | GET | `/my-posts` | `handleMyPosts` | api.ts |
 | GET | `/search` | `handleSearch` | api.ts |
 | GET | `/post/:id/edit` | `handleEditPostForm` | posts.ts |
@@ -135,6 +157,8 @@ To add a new route: export a handler from a file in `src/routes/`, then call `ro
 
 **Check for an asset collision first.** Static assets are served *before* the Worker runs, so a route at `/foo` is dead on arrival if `templates/pages/foo.njk` exists (it builds to `public/foo/index.html`). Either don't create the template, or add `/foo` to `run_worker_first` in `wrangler.toml`. This is exactly how `GET /search` was silently unreachable.
 
+**Register routes without a trailing slash.** `Router.match()` anchors its pattern with `$`, so `/search` and `/search/` are different strings and only the first matches. `src/index.ts` handles the second form: when the router does not claim a path that ends in `/`, it retries the trimmed path, and if *that* is a registered route it issues a `308` redirect to it. The redirect is deliberately conditional — Eleventy pages genuinely are directory-style, so `/about/` must keep falling through to `env.ASSETS.fetch()` untouched. `308` rather than `301` so POST routes like `/post/:id/edit/` do not degrade into a GET. Covered by `test/routing.test.ts`.
+
 ---
 
 ## Authentication
@@ -148,27 +172,25 @@ To add a new route: export a handler from a file in `src/routes/`, then call `ro
 
 ### Verifying a session in a handler
 
-Session verification is done manually in every handler that needs it — there is no middleware. The pattern used everywhere is:
+There is no middleware — each handler that needs a session asks for one. Use `getSessionUser()` from `src/lib/session.ts`; do **not** hand-roll cookie parsing:
 
 ```typescript
-const cookieHeader = request.headers.get('Cookie');
-let user = null;
-if (cookieHeader) {
-  const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
-  const token = cookies['rr_session'];
-  if (token) {
-    user = await verifySessionToken(token, env.AUTH_HMAC_SECRET);
-  }
-}
+import { getSessionUser, sessionUserId } from '../lib/session';
+
+const user = await getSessionUser(request, env);
 if (!user) return new Response('Unauthorized', { status: 401 });
 ```
 
-`verifySessionToken` returns a `SessionPayload` (with `sub` = user ID string, `email`) or `null`. Import from `src/lib/auth.ts`.
+`getSessionUser` returns a `SessionPayload` (`sub` = user id as a string, `email`) or `null` when the request is anonymous or the token is missing, expired, or tampered with. `sessionUserId(user)` converts `sub` to the number needed to compare against DB columns.
+
+**Check the session before querying anything keyed on a user-supplied id.** Querying first leaks row existence through the status code — `handleReportForm` did exactly this, returning 302 for a real post id and 404 for a missing one to callers who were not even logged in.
 
 ### Magic link flow
 
 1. `POST /api/auth/start` — verifies Turnstile, generates token, sends email via Mailgun
 2. `GET /api/auth/callback?token=X` — verifies token, upserts user in DB, sets `rr_session` cookie, redirects to `/`
+
+The callback is reached by clicking a link in an email, so every failure path renders a full page (via `callbackErrorPage()`) pointing back at `/login` rather than returning bare text. The whole body is wrapped in a try/catch: a throw here used to escape the handler and surface as the runtime's own bare 500 mid-login.
 
 ### Logout
 
@@ -199,6 +221,10 @@ await env.DB.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').bind(now
 ```
 
 Always use `.bind()` — never string-interpolate values into queries.
+
+**Parse route ids with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`.** `parseInt("12abc", 10)` returns `12` and `Number.isFinite()` accepts it, so a malformed URL silently resolves to an unrelated row instead of 404ing. `parseRouteId` requires the whole string to be digits and rejects zero, negatives, and values past the safe-integer range, returning `null` for anything it will not vouch for.
+
+**There are no transactions.** D1's `batch()` runs statements atomically but cannot feed one statement's `RETURNING` output into the next, so any multi-write flow that needs a generated id is non-atomic by construction. `handleCreatePost` is the live example — see the known-limit comment there and the backlog entry in CLAUDE.md.
 
 ### Tables
 
@@ -263,7 +289,7 @@ Must be run after any template change before deploying. The Worker serves `publi
 
 Provides the full HTML shell: `<head>` with CSS + HTMX CDN, nav with Login/Logout HTMX component (`#nav-user-state`), and footer. All Eleventy pages `{% extends "base.njk" %}` and fill `{% block content %}`.
 
-The `renderFullPage()` function in `api.ts` is a separate copy of this shell used for Worker-rendered pages. It does **not** include the `#nav-user-state` HTMX component — a known limitation.
+The `renderFullPage()` function in `src/lib/html.ts` is a separate copy of this shell used for Worker-rendered pages. Both copies render the same nav, including `#nav-user-state` and `#nav-subjects`. `base.njk`'s `{% block head %}` corresponds to `renderFullPage()`'s `options` argument. Keep the two in sync — see "Keeping the two layouts in sync" below.
 
 ### Eleventy data
 
@@ -292,8 +318,13 @@ Required on: login, post creation, message sending, post reporting.
 **Sending address:** determined by `env.MAILGUN_SENDING_KEY` (if set to a full address, used as-is; if set to a local part, appended with `@researchroomies.com`)
 
 **Functions in `src/lib/mailgun.ts`:**
-- `sendMagicLink(email, link, env)` — login email
+- `sendMagicLink(email, link, env)` — login email. Never log the `link`; it carries a valid login token.
 - `sendInquiryEmail(authorEmail, senderEmail, postTitle, content, env)` — inquiry notification; uses `Reply-To` so the author can reply directly to the sender
+- `sendReportEmail(postId, postTitle, reason, reporterEmail, env)` — abuse report to `admin@researchroomies.com`. Best-effort: the `flags` row is the source of truth and a failed send must never fail the report.
+
+All of these return `boolean` rather than throwing, so callers must check the result.
+
+**Escape every user-supplied value going into an HTML email body** with `escapeHtmlForEmail()` (local to `mailgun.ts`). These bodies are read by a third party — a post author, or the admin — so an unescaped title or message is HTML injection into someone else's inbox. The plain-text bodies and the `subject` field need no escaping: text has nothing to inject into, and Mailgun's `subject` travels as a `FormData` field, so newlines cannot become header injection.
 
 ---
 
@@ -338,9 +369,13 @@ npm run cf-typegen # Regenerate Env type from wrangler.toml
 
 ## Testing
 
-**Framework:** Vitest with `@cloudflare/vitest-pool-workers`  
-**Test file:** `test/auth_verification.test.ts`  
-**Coverage:** Magic link and session token generation, verification, signature tamper detection
+**Framework:** Vitest with `@cloudflare/vitest-pool-workers` (config in `vitest.config.mts`)
+
+| File | Covers |
+|---|---|
+| `test/auth_verification.test.ts` | Magic link and session token generation, verification, signature tamper detection |
+| `test/routing.test.ts` | Router matching, path params, trailing-slash behaviour |
+| `test/params.test.ts` | `parseRouteId()` — rejects `12abc`, `0`, negatives, oversized ids |
 
 To add tests for new routes, use the Cloudflare vitest pool which provides a real Workers-like runtime with D1 bindings.
 
@@ -368,19 +403,24 @@ guix shell --container --emulate-fhs --network \
 
 ### Adding a new protected API endpoint
 
-1. `const user = await getSessionUser(request, env)` from `../lib/session` — returns null when anonymous
+1. `const user = await getSessionUser(request, env)` from `../lib/session` — returns null when anonymous. Do this **first**, before any DB lookup keyed on a user-supplied id
 2. Return `401` (API/POST endpoints) or redirect to `/login` (page loads) if `user` is null
-3. For anything mutating, re-load the row and compare against `sessionUserId(user)` — never trust an id from the form body
-4. Verify Turnstile on anything a bot could hammer
-5. Escape every interpolated value with `escapeHtml()`
-6. Register the route in `src/index.ts`
+3. Parse ids with `parseRouteId()`; treat `null` as 400/404, never as "try anyway"
+4. For anything mutating, re-load the row and compare against `sessionUserId(user)` — never trust an id from the form body
+5. Verify Turnstile on anything a bot could hammer
+6. Escape every interpolated value with `escapeHtml()`
+7. Wrap the handler body in try/catch and return a rendered error page — a throw that escapes becomes the runtime's bare 500 with no page. Log the real error with `console.error`; **never** put `err.message` in the response, it leaks D1 table and constraint names
+8. Register the route in `src/index.ts`, without a trailing slash
 
 ### Adding a new Eleventy page
 
-1. Create `templates/pages/yourpage.njk`, extend `base.njk`
-2. Run `npm run build` — Eleventy outputs `public/yourpage/index.html`
-3. The Worker will serve it automatically via `env.ASSETS.fetch()`
-4. No route registration needed in `src/index.ts` unless the page needs dynamic data
+1. Confirm the page is genuinely static. If it needs DB or session data, it belongs in the Worker — do not create a shell that fetches its own content
+2. Create `templates/pages/yourpage.njk`, extend `base.njk`
+3. Run `npm run build` — Eleventy outputs `public/yourpage/index.html`
+4. The Worker will serve it automatically via `env.ASSETS.fetch()`
+5. No route registration needed in `src/index.ts` unless the page needs dynamic data
+
+Deleting a `.njk` file does not remove its already-built output from `public/`, and a stale `index.html` there will shadow a Worker route. Delete the built directory too.
 
 ### Adding a new HTMX component endpoint
 
@@ -389,9 +429,17 @@ guix shell --container --emulate-fhs --network \
 3. Register `GET /api/components/yourcomponent` in `src/index.ts`
 4. In the template, use `hx-get="/api/components/yourcomponent" hx-trigger="load" hx-swap="..."` on the target element
 
+### Escaping Worker-rendered HTML
+
+Worker HTML is built by string concatenation, so **every interpolated value that could originate from a user or the database must pass through `escapeHtml()`** from `src/lib/html.ts` — post titles, descriptions, conference names, locations, page titles, meta tags. There is no template engine doing it for you. Missing this was a live stored-XSS bug. Use `encodeURIComponent()` for values going into a URL path or query string, not `escapeHtml()`.
+
+Email bodies use the separate `escapeHtmlForEmail()` in `mailgun.ts` — see the Email section.
+
 ### Keeping the two layouts in sync
 
 `renderFullPage()` (in `src/lib/html.ts`) is the server-side twin of `templates/layouts/base.njk`. Both render the same nav, including the `#nav-user-state` and `#nav-subjects` HTMX spans. They are separate copies, so **any nav, header, or footer change must be made in both** — otherwise Worker-rendered pages drift out of sync with static ones, which is how `/my-posts` and `/conference/:slug` previously rendered with no Login/Logout button at all.
+
+`base.njk`'s `{% block head %}` and `renderFullPage()`'s `options` argument are the same seam for per-page `<head>` content; extend both together too.
 
 ### D1 integer booleans
 

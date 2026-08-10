@@ -1,5 +1,6 @@
 import { getSessionUser, sessionUserId } from "../lib/session";
 import { escapeHtml, renderFullPage } from "../lib/html";
+import { parseRouteId } from "../lib/params";
 
 interface PostForEdit {
   id: number;
@@ -22,10 +23,7 @@ interface PostForDelete {
 }
 
 function parsePostId(params?: Record<string, string>): number | null {
-  const raw = params?.id;
-  if (!raw) return null;
-  const id = parseInt(raw, 10);
-  return Number.isFinite(id) ? id : null;
+  return parseRouteId(params?.id);
 }
 
 function notFoundPage(): Response {

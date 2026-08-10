@@ -7,7 +7,7 @@ import {
 	handleComponentNavSubjects,
 	handleComponentTagOptions,
 	handleCreatePost,
-	handlePostShell,
+	handlePostPage,
 	handleComponentPost,
 	handleComponentNavUser,
 	handleMessageSend,
@@ -35,7 +35,7 @@ router.add('POST', '/api/message/send', handleMessageSend);
 // Worker-rendered pages
 router.add('GET', '/conference/:slug', handleConferencePage);
 router.add('GET', '/subject/:slug', handleSubjectPage);
-router.add('GET', '/post/:id', handlePostShell);
+router.add('GET', '/post/:id', handlePostPage);
 router.add('GET', '/my-posts', handleMyPosts);
 router.add('GET', '/search', handleSearch);
 

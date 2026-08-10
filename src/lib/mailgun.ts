@@ -121,9 +121,6 @@ export async function sendReportEmail(
     }, env);
 }
 
-// NOTE: postTitle and messageContent are interpolated into the HTML body
-// unescaped — a known bug, left as-is pending a decision on escaping here.
-// escapeHtmlForEmail above is currently applied only in sendReportEmail.
 export async function sendInquiryEmail(
     authorEmail: string,
     senderEmail: string,
@@ -139,10 +136,10 @@ export async function sendInquiryEmail(
         text: `You have received a new inquiry from ${senderEmail} regarding your post "${postTitle}".\n\nMessage:\n${messageContent}\n\nYou can reply directly to this email to respond to the sender.\n`,
         html: `<html>
   <body>
-    <h3>New Inquiry for "${postTitle}"</h3>
-    <p>You have received a new inquiry from <strong>${senderEmail}</strong>.</p>
+    <h3>New Inquiry for "${escapeHtmlForEmail(postTitle)}"</h3>
+    <p>You have received a new inquiry from <strong>${escapeHtmlForEmail(senderEmail)}</strong>.</p>
     <hr />
-    <p style="white-space: pre-wrap;">${messageContent}</p>
+    <p style="white-space: pre-wrap;">${escapeHtmlForEmail(messageContent)}</p>
     <hr />
     <p><small>You can reply directly to this email to respond to the sender.</small></p>
   </body>

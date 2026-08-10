@@ -6,7 +6,9 @@ import {
   formatDate,
   formatDateRange,
   renderFullPage,
+  summarize,
 } from "../lib/html";
+import { parseRouteId } from "../lib/params";
 
 interface Conference {
   id: number;
@@ -457,6 +459,14 @@ export async function handleCreatePost(
     const now = Math.floor(Date.now() / 1000);
     const userId = sessionUserId(user);
 
+    // KNOWN LIMIT: creating a post against a new conference is three separate
+    // writes (conference insert, tag batch, post insert) with no transaction
+    // around them. If the post insert fails, the conference survives as an
+    // orphan and keeps its slug, so the user's retry gets "-2" appended.
+    // D1's batch() cannot fix this: the post insert needs the conference id
+    // that the first statement RETURNs, and batch() has no way to feed one
+    // statement's output into the next. A real fix needs either a stored
+    // procedure-shaped API or a cleanup pass over conferences with no posts.
     if (conferenceId === "new") {
       const newConfName = formData.get("new_conf_name") as string;
       const newConfStartStr = formData.get("new_conf_start") as string;
@@ -526,8 +536,8 @@ export async function handleCreatePost(
       }
     }
 
-    const parsedConferenceId = parseInt(conferenceId, 10);
-    if (!Number.isFinite(parsedConferenceId)) {
+    const parsedConferenceId = parseRouteId(conferenceId);
+    if (parsedConferenceId === null) {
       return new Response("Invalid conference", { status: 400 });
     }
 
@@ -546,11 +556,9 @@ export async function handleCreatePost(
     }
 
     return Response.redirect(`${new URL(request.url).origin}/my-posts`, 303);
-  } catch (err: any) {
+  } catch (err) {
     console.error("Error creating post:", err);
-    return new Response("Internal Server Error: " + err.message, {
-      status: 500,
-    });
+    return new Response("Internal Server Error", { status: 500 });
   }
 }
 
@@ -570,10 +578,10 @@ export async function handleMessageSend(
 
   try {
     const formData = await request.formData();
-    const postId = formData.get("post_id") as string;
+    const postId = parseRouteId(formData.get("post_id") as string | null);
     const content = formData.get("content") as string;
 
-    if (!postId || !content) {
+    if (postId === null || !content) {
       return new Response("Missing required fields", { status: 400 });
     }
 
@@ -597,7 +605,7 @@ export async function handleMessageSend(
     `);
 
     const result = await stmt
-      .bind(parseInt(postId, 10))
+      .bind(postId)
       .first<{ email: string; title: string }>();
 
     if (!result) {
@@ -624,7 +632,7 @@ export async function handleMessageSend(
     `,
     )
       .bind(
-        parseInt(postId, 10),
+        postId,
         user.email,
         result.email,
         content,
@@ -642,95 +650,72 @@ export async function handleMessageSend(
   }
 }
 
-export async function handlePostShell(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-): Promise<Response> {
-  // Fetch static `/post/index.html` from Cloudflare Pages Assets
-  const assetUrl = new URL("/post/", request.url);
-  const assetRequest = new Request(assetUrl, request);
-  return env.ASSETS.fetch(assetRequest);
+interface PostDetail {
+  id: number;
+  title: string;
+  description: string;
+  user_id: number;
+  conference_id: number;
+  conference_name: string;
+  conference_slug: string;
 }
 
-export async function handleComponentPost(
-  request: Request,
+async function getPostDetail(
   env: Env,
-  ctx: ExecutionContext,
-  params?: Record<string, string>,
-): Promise<Response> {
-  const postId = params?.id;
-  if (!postId) {
-    return new Response("Missing post ID", { status: 400 });
-  }
+  id: number,
+): Promise<PostDetail | null> {
+  const stmt = env.DB.prepare(`
+    SELECT p.id, p.title, p.description, p.user_id, p.conference_id,
+           c.name as conference_name, c.slug as conference_slug
+    FROM posts p
+    JOIN conferences c ON p.conference_id = c.id
+    WHERE p.id = ?
+  `);
 
-  try {
-    const stmt = env.DB.prepare(`
-      SELECT p.id, p.title, p.description, p.user_id, p.conference_id,
-             c.name as conference_name, c.slug as conference_slug
-      FROM posts p
-      JOIN conferences c ON p.conference_id = c.id
-      WHERE p.id = ?
-    `);
+  return await stmt.bind(id).first<PostDetail>();
+}
 
-    const result = await stmt.bind(parseInt(postId, 10)).first<{
-      id: number;
-      title: string;
-      description: string;
-      user_id: number;
-      conference_id: number;
-      conference_name: string;
-      conference_slug: string;
-    }>();
-
-    if (!result) {
-      return new Response("<p>Post not found.</p>", {
-        status: 404,
-        headers: { "Content-Type": "text/html" },
-      });
-    }
-
-    const user = await getSessionUser(request, env);
-    const isAuthor = user !== null && sessionUserId(user) === result.user_id;
-
-    const formHtml = user
-      ? `
+function renderPostDetail(
+  post: PostDetail,
+  viewer: { isLoggedIn: boolean; isAuthor: boolean; sent: boolean },
+): string {
+  const formHtml = viewer.isLoggedIn
+    ? `
         <form action="/api/message/send" method="POST">
-          <input type="hidden" name="post_id" value="${result.id}" />
+          <input type="hidden" name="post_id" value="${post.id}" />
           <label>Message</label>
           <textarea name="content" rows="5" required></textarea>
           <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
           <button type="submit">Send</button>
         </form>
     `
-      : `
+    : `
         <p>Please <a href="/login">log in</a> to send an inquiry.</p>
     `;
 
-    const ownerActions = isAuthor
-      ? `
+  const ownerActions = viewer.isAuthor
+    ? `
         <p class="post-actions">
-          <a href="/post/${result.id}/edit" class="nav-link">Edit</a>
-          <a href="/post/${result.id}/delete" class="nav-link danger-link">Delete</a>
+          <a href="/post/${post.id}/edit" class="nav-link">Edit</a>
+          <a href="/post/${post.id}/delete" class="nav-link danger-link">Delete</a>
         </p>
       `
-      : `
+    : `
         <p class="post-actions">
-          <a href="/post/${result.id}/report" class="report-link">Report this post</a>
+          <a href="/post/${post.id}/report" class="report-link">Report this post</a>
         </p>
       `;
 
-    const sent = new URL(request.url).searchParams.get("sent") === "1";
-    const sentNotice = sent
-      ? `<p class="form-notice">Your inquiry was sent. The post author has your email address and can reply directly.</p>`
-      : "";
+  const sentNotice = viewer.sent
+    ? `<p class="form-notice">Your inquiry was sent. The post author has your email address and can reply directly.</p>`
+    : "";
 
-    const html = `
+  return `
       ${sentNotice}
       <article>
-        <h2>${escapeHtml(result.title)}</h2>
-        <p>${escapeHtml(result.description)}</p>
-        <p><strong>Conference:</strong> <a href="/conference/${encodeURIComponent(result.conference_slug)}">${escapeHtml(result.conference_name)}</a></p>
+        <h2>${escapeHtml(post.title)}</h2>
+        <p>${escapeHtml(post.description)}</p>
+        <p><strong>Conference:</strong> <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a></p>
         ${ownerActions}
       </article>
       <section>
@@ -738,6 +723,121 @@ export async function handleComponentPost(
         ${formHtml}
       </section>
     `;
+}
+
+/**
+ * GET /post/:id — server-rendered.
+ *
+ * This used to serve a static shell whose inline script re-parsed the id out of
+ * window.location and fetched /api/components/post/:id, costing three round
+ * trips to show the site's primary entity and leaving crawlers and link
+ * unfurlers with "Loading post details...". The Worker already has the id in
+ * params, so it renders the post directly, with a real title and description.
+ */
+export async function handlePostPage(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  params?: Record<string, string>,
+): Promise<Response> {
+  const postId = parseRouteId(params?.id);
+  if (postId === null) {
+    return new Response(
+      renderFullPage(
+        "Post Not Found",
+        `<div class="site-page"><h2>Post Not Found</h2><p>The requested post could not be found. <a href="/search">Browse all posts</a> instead.</p></div>`,
+      ),
+      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
+
+  try {
+    const post = await getPostDetail(env, postId);
+
+    if (!post) {
+      return new Response(
+        renderFullPage(
+          "Post Not Found",
+          `<div class="site-page"><h2>Post Not Found</h2><p>The requested post could not be found. <a href="/search">Browse all posts</a> instead.</p></div>`,
+        ),
+        { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+      );
+    }
+
+    const user = await getSessionUser(request, env);
+    const url = new URL(request.url);
+
+    const content = `<div class="site-page">${renderPostDetail(post, {
+      isLoggedIn: user !== null,
+      isAuthor: user !== null && sessionUserId(user) === post.user_id,
+      sent: url.searchParams.get("sent") === "1",
+    })}</div>`;
+
+    return new Response(
+      renderFullPage(post.title, content, {
+        description: summarize(
+          `${post.description} · ${post.conference_name}`,
+        ),
+        canonicalUrl: `${url.origin}/post/${post.id}`,
+      }),
+      {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          // Varies by viewer (author actions, logged-out prompt) — never shared.
+          "Cache-Control": "private, no-cache",
+        },
+      },
+    );
+  } catch (error) {
+    console.error("Error fetching post:", error);
+    return new Response(
+      renderFullPage(
+        "Error",
+        `<div class="site-page"><h2>Error</h2><p>Failed to load this post. Please try again later.</p></div>`,
+      ),
+      { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
+}
+
+/**
+ * GET /api/components/post/:id — the same body as an HTMX fragment.
+ *
+ * Nothing in the current templates requests this any more; it is kept so that
+ * an old post shell still sitting in a browser cache degrades to a working
+ * page rather than a dead fetch.
+ */
+export async function handleComponentPost(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  params?: Record<string, string>,
+): Promise<Response> {
+  const postId = parseRouteId(params?.id);
+  if (postId === null) {
+    return new Response("<p>Post not found.</p>", {
+      status: 404,
+      headers: { "Content-Type": "text/html" },
+    });
+  }
+
+  try {
+    const post = await getPostDetail(env, postId);
+
+    if (!post) {
+      return new Response("<p>Post not found.</p>", {
+        status: 404,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    const user = await getSessionUser(request, env);
+
+    const html = renderPostDetail(post, {
+      isLoggedIn: user !== null,
+      isAuthor: user !== null && sessionUserId(user) === post.user_id,
+      sent: new URL(request.url).searchParams.get("sent") === "1",
+    });
 
     return new Response(html, {
       headers: {
@@ -1020,21 +1120,26 @@ export async function handleSubjectPage(
 ): Promise<Response> {
   const slug = params?.slug ? decodeURIComponent(params.slug) : "";
 
-  const tag = await env.DB.prepare(`SELECT slug, name FROM tags WHERE slug = ?`)
-    .bind(slug)
-    .first<Tag>();
-
-  if (!tag) {
-    return new Response(
-      renderFullPage(
-        "Subject Not Found",
-        `<div class="site-page"><h2>Subject Not Found</h2><p>No such subject. <a href="/search">Browse all posts</a> instead.</p></div>`,
-      ),
-      { status: 404, headers: { "Content-Type": "text/html" } },
-    );
-  }
-
   try {
+    // Inside the try: this is a DB call like any other, and when it was above
+    // the block a D1 failure here escaped the handler as an unhandled 500
+    // while the identical failure one query later rendered an error page.
+    const tag = await env.DB.prepare(
+      `SELECT slug, name FROM tags WHERE slug = ?`,
+    )
+      .bind(slug)
+      .first<Tag>();
+
+    if (!tag) {
+      return new Response(
+        renderFullPage(
+          "Subject Not Found",
+          `<div class="site-page"><h2>Subject Not Found</h2><p>No such subject. <a href="/search">Browse all posts</a> instead.</p></div>`,
+        ),
+        { status: 404, headers: { "Content-Type": "text/html" } },
+      );
+    }
+
     const { results } = await env.DB.prepare(
       `
       SELECT conferences.id, conferences.name, conferences.slug,

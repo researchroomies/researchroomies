@@ -2,6 +2,7 @@ import { sendReportEmail } from "../lib/mailgun";
 import { getSessionUser } from "../lib/session";
 import { verifyTurnstile } from "../lib/turnstile";
 import { escapeHtml, renderFullPage } from "../lib/html";
+import { parseRouteId } from "../lib/params";
 
 interface ReportablePost {
   id: number;
@@ -51,8 +52,17 @@ export async function handleReportForm(
   ctx: ExecutionContext,
   params?: Record<string, string>,
 ): Promise<Response> {
-  const postId = params?.id;
-  if (!postId) {
+  // Authenticate BEFORE looking anything up. Querying first meant an anonymous
+  // caller got a 302 for a post that exists and a 404 for one that does not,
+  // turning this route into a membership oracle over the posts table. Every
+  // other handler checks the session first; this one was inverted.
+  const user = await getSessionUser(request, env);
+  if (!user) {
+    return Response.redirect(new URL("/login", request.url).href, 302);
+  }
+
+  const parsedPostId = parseRouteId(params?.id);
+  if (parsedPostId === null) {
     return new Response(
       renderFullPage(
         "Error",
@@ -63,19 +73,16 @@ export async function handleReportForm(
   }
 
   try {
-    const parsedPostId = parseInt(postId, 10);
-    const post = Number.isFinite(parsedPostId)
-      ? await env.DB.prepare(
-          `
-          SELECT p.id, p.title, c.name AS conference_name
-          FROM posts p
-          JOIN conferences c ON p.conference_id = c.id
-          WHERE p.id = ?
-        `,
-        )
-          .bind(parsedPostId)
-          .first<ReportablePost>()
-      : null;
+    const post = await env.DB.prepare(
+      `
+      SELECT p.id, p.title, c.name AS conference_name
+      FROM posts p
+      JOIN conferences c ON p.conference_id = c.id
+      WHERE p.id = ?
+    `,
+    )
+      .bind(parsedPostId)
+      .first<ReportablePost>();
 
     if (!post) {
       return new Response(
@@ -85,11 +92,6 @@ export async function handleReportForm(
         ),
         { status: 404, headers: { "Content-Type": "text/html" } },
       );
-    }
-
-    const user = await getSessionUser(request, env);
-    if (!user) {
-      return Response.redirect(new URL("/login", request.url).href, 302);
     }
 
     const content = renderReportForm(post);
@@ -123,22 +125,17 @@ export async function handleReportSubmit(
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const postId = params?.id;
-  if (!postId) {
-    return new Response("Missing post ID", { status: 400 });
-  }
-
   const user = await getSessionUser(request, env);
   if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  try {
-    const parsedPostId = parseInt(postId, 10);
-    if (!Number.isFinite(parsedPostId)) {
-      return new Response("Invalid post", { status: 400 });
-    }
+  const parsedPostId = parseRouteId(params?.id);
+  if (parsedPostId === null) {
+    return new Response("Invalid post", { status: 400 });
+  }
 
+  try {
     const formData = await request.formData();
     const reason = ((formData.get("reason") as string) || "").trim();
     const details = ((formData.get("details") as string) || "").trim();

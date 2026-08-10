@@ -42,21 +42,64 @@ export function formatDateRange(start: number, stop: number): string {
     return `${formatDate(start)} – ${formatDate(stop)}`;
 }
 
+export interface PageOptions {
+    /**
+     * Rendered into <meta name="description"> and the OpenGraph tags, so this
+     * is what search results and chat/link previews show. Only pages with real
+     * server-rendered content should set it.
+     */
+    description?: string;
+    /** Absolute URL of the page, for og:url. */
+    canonicalUrl?: string;
+}
+
+/** Collapses whitespace and truncates on a word boundary for meta tags. */
+export function summarize(text: string, maxLength = 160): string {
+    const collapsed = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (collapsed.length <= maxLength) return collapsed;
+    const clipped = collapsed.slice(0, maxLength - 1);
+    const lastSpace = clipped.lastIndexOf(' ');
+    return `${(lastSpace > 40 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}…`;
+}
+
 /**
  * Server-side counterpart to templates/layouts/base.njk.
  *
  * Keep the two navs in sync. Both load user state and subject links as HTMX
- * fragments so this function stays synchronous and DB-free.
+ * fragments so this function stays synchronous and DB-free. `options` is the
+ * equivalent of base.njk's `{% block head %}`.
  */
-export function renderFullPage(title: string, content: string): string {
+export function renderFullPage(title: string, content: string, options: PageOptions = {}): string {
     const currentYear = new Date().getFullYear();
+    const fullTitle = `${title} – ResearchRoomies`;
+
+    // Crawlers and chat link-unfurlers do not run HTMX, so anything they should
+    // see has to be in the served HTML, not swapped in on load.
+    const metaHtml = [
+        options.description
+            ? `<meta name="description" content="${escapeHtml(options.description)}" />`
+            : '',
+        `<meta property="og:title" content="${escapeHtml(fullTitle)}" />`,
+        options.description
+            ? `<meta property="og:description" content="${escapeHtml(options.description)}" />`
+            : '',
+        `<meta property="og:type" content="website" />`,
+        options.canonicalUrl
+            ? `<meta property="og:url" content="${escapeHtml(options.canonicalUrl)}" />`
+            : '',
+        `<meta name="twitter:card" content="summary" />`,
+    ]
+        .filter(Boolean)
+        .join('\n  ');
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(title)} – ResearchRoomies</title>
+  <title>${escapeHtml(fullTitle)}</title>
+  ${metaHtml}
+  ${options.canonicalUrl ? `<link rel="canonical" href="${escapeHtml(options.canonicalUrl)}" />` : ''}
   <link rel="stylesheet" href="/style/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>

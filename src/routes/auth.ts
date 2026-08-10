@@ -1,9 +1,21 @@
 import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isEmailAllowed } from '../lib/auth';
 import { sendMagicLink } from '../lib/mailgun';
 import { COOKIE_NAME, getSessionUser } from '../lib/session';
+import { renderFullPage } from '../lib/html';
 
 const APP_ORIGIN = "https://researchroomies.com";
 const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
+
+/**
+ * The callback is reached by clicking a link in an email, so failures land in
+ * a browser address bar and must render a page rather than bare text.
+ */
+function callbackErrorPage(heading: string, body: string, status: number): Response {
+    return new Response(
+        renderFullPage(heading, `<div class="site-page"><h2>${heading}</h2><p>${body}</p></div>`),
+        { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
+}
 
 export async function handleAuthStart(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method !== 'POST') {
@@ -85,61 +97,82 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
     const token = url.searchParams.get('token');
 
     if (!token) {
-        return new Response('Missing token', { status: 400 });
-    }
-
-    // 1. Verify Token
-    const payload = await verifyMagicLinkToken(token, env.AUTH_HMAC_SECRET);
-    if (!payload) {
-        return new Response('Invalid or expired token', { status: 400 });
-    }
-
-    // Re-check the gate here too, so flipping RESTRICT_EDU_EMAILS on takes
-    // effect immediately rather than after the last issued link expires.
-    if (!isEmailAllowed(payload.email, env)) {
-        return new Response(
-            'Accounts are currently limited to .edu email addresses. If you are an academic without one, email admin@researchroomies.com and we will get you set up.',
-            { status: 403 }
+        return callbackErrorPage(
+            'Login Link Incomplete',
+            'That link is missing its login token. Please <a href="/login">request a new one</a>.',
+            400
         );
     }
 
-    // 2. Upsert user
-    const db = env.DB;
-    // Check if user exists
-    let user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(payload.email).first<{ id: number, email: string, created_at: number }>();
+    try {
+        // 1. Verify Token
+        const payload = await verifyMagicLinkToken(token, env.AUTH_HMAC_SECRET);
+        if (!payload) {
+            return callbackErrorPage(
+                'Login Link Expired',
+                'This login link is invalid or has expired. Login links are good for 15 minutes &mdash; please <a href="/login">request a new one</a>.',
+                400
+            );
+        }
 
-    let userId: string;
+        // Re-check the gate here too, so flipping RESTRICT_EDU_EMAILS on takes
+        // effect immediately rather than after the last issued link expires.
+        if (!isEmailAllowed(payload.email, env)) {
+            return callbackErrorPage(
+                'Account Not Eligible',
+                'Accounts are currently limited to .edu email addresses. If you are an academic without one, email <a href="mailto:admin@researchroomies.com">admin@researchroomies.com</a> and we will get you set up.',
+                403
+            );
+        }
 
-    const now = Math.floor(Date.now() / 1000);
+        // 2. Upsert user
+        const db = env.DB;
+        // Check if user exists
+        let user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(payload.email).first<{ id: number, email: string, created_at: number }>();
 
-    if (!user) {
-        // Create new user
-        const result = await db.prepare('INSERT INTO users (email, created_at, last_login_at) VALUES (?, ?, ?) RETURNING id')
-            .bind(payload.email, now, now)
-            .first<{ id: number }>();
+        let userId: string;
 
-        if (!result) throw new Error("Failed to create user");
-        userId = result.id.toString();
-    } else {
-        // Update last login
-        await db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?')
-            .bind(now, user.id)
-            .run();
-        userId = user.id.toString();
+        const now = Math.floor(Date.now() / 1000);
+
+        if (!user) {
+            // Create new user
+            const result = await db.prepare('INSERT INTO users (email, created_at, last_login_at) VALUES (?, ?, ?) RETURNING id')
+                .bind(payload.email, now, now)
+                .first<{ id: number }>();
+
+            if (!result) throw new Error("Failed to create user");
+            userId = result.id.toString();
+        } else {
+            // Update last login
+            await db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?')
+                .bind(now, user.id)
+                .run();
+            userId = user.id.toString();
+        }
+
+        // 3. Issue session token
+        const sessionToken = await generateSessionToken(now, payload.email, userId, env.AUTH_HMAC_SECRET);
+
+        // 4. Set cookie and redirect
+        const headers = new Headers();
+        headers.append('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL}`);
+        headers.append('Location', '/');
+
+        return new Response(null, {
+            status: 302,
+            headers: headers
+        });
+    } catch (e) {
+        // A throw here used to escape the handler entirely: the runtime returned
+        // its own bare 500 and the user, mid-login from their inbox, saw nothing
+        // explaining it or pointing back at /login.
+        console.error("Auth callback error:", e);
+        return callbackErrorPage(
+            'Login Failed',
+            'Something went wrong while signing you in. Please <a href="/login">try again</a>, or contact <a href="mailto:admin@researchroomies.com">admin@researchroomies.com</a> if it keeps happening.',
+            500
+        );
     }
-
-    // 3. Issue session token
-    const sessionToken = await generateSessionToken(now, payload.email, userId, env.AUTH_HMAC_SECRET);
-
-    // 4. Set cookie and redirect
-    const headers = new Headers();
-    headers.append('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL}`);
-    headers.append('Location', '/');
-
-    return new Response(null, {
-        status: 302,
-        headers: headers
-    });
 }
 
 export async function handleAuthLogout(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
