@@ -98,6 +98,22 @@ degrade into a GET. Covered by `test/routing.test.ts`.
 - **`MAILGUN_SENDING_KEY` was documented, not renamed.** It is a From address, not a key, but renaming it means rotating a deployed secret by hand for no functional gain. `config.mailgun.from` carries the correct meaning; the var keeps the wrong name.
 - **The "valid for 15 minutes" copy is generated** from `MAGIC_LINK_TTL_SECONDS`, in both email bodies and the expired-link page, so it cannot drift from the token.
 
+---
+
+### Refactor task 4 — the two page shells are now one, 2026-08-10
+
+`renderFullPage()` and `base.njk` were hand-maintained copies of the same chrome, kept together by a paragraph in this file. The chrome now lives once, in **`renderShell()` (`src/lib/shell.mjs`)** — plain ESM so the Worker bundle, the build script and the test suite can all load it. `renderFullPage()` is a thin call into it (unchanged signature), and `scripts/gen-layout.mjs` generates `templates/layouts/base.njk` from it ahead of Eleventy in `npm run build`.
+
+`base.njk` is committed with a `{# GENERATED FILE #}` banner rather than gitignored, so `npx vitest run` works on a fresh clone. `test/shell.test.ts` reads the committed layout, substitutes the same Nunjucks markers the generator emitted, and asserts the result is byte-identical to `renderFullPage()` — head, footer, and whole document. A hand-edited or stale layout fails the suite.
+
+Three live bugs closed with it:
+
+- **Blank copyright year on every built page.** `base.njk` rendered `{{ year }}` with nothing defining it, so static pages shipped `© ResearchRoomies` while Worker pages showed the year. `eleventy.config.js` now supplies `year` (and `siteOrigin`) as global data.
+- **No meta on static pages.** About, Terms, Privacy, Safety, How It Works, Login, Create, Home and 404 had no description, no OpenGraph tags and no canonical link — they produced no link preview at all. Each page now carries `title` and `description` front matter; the shell builds the tags, and canonical/`og:url` come from `siteOrigin` + `page.url`.
+- **Two title contracts.** The nine `.njk` pages each wrote their own full title, seven with a hyphen and two with an en dash, while `renderFullPage()` appended ` – ResearchRoomies` itself. Pages now supply a bare `title` in front matter and the shell appends the suffix, one way, everywhere.
+
+---
+
 ## Open decisions
 
 ### `.edu` email restriction — built as a switch, currently OFF
@@ -136,7 +152,8 @@ The gate is implemented and off by default, so this is now a config decision rat
 
 - **Asset routing precedence (the big footgun).** Cloudflare serves a matching static asset *before* invoking the Worker. Adding `templates/pages/foo.njk` will silently shadow a `GET /foo` Worker route — this is exactly how `/search` broke. Either don't create the template, or add the path to `run_worker_first` in `wrangler.toml`.
 - **Trailing slashes.** Worker routes are slashless and `Router.match()` is `$`-anchored. `src/index.ts` redirects `/foo/` → `/foo` with a 308, but *only* when the trimmed path is a registered route — Eleventy assets are genuinely directory-style, so `/about/` must keep falling through to `env.ASSETS.fetch()`. Register new routes without a trailing slash and this keeps working.
-- **Static vs. dynamic rendering:** pages in `templates/pages/` are built by Eleventy at deploy time; dynamic content is Worker-rendered or injected via HTMX. `renderFullPage()` in `src/lib/html.ts` is the server-side twin of `templates/layouts/base.njk` — **change both together.** No page is on the static-shell-plus-fetch pattern any more; don't add one back. If a page has content worth indexing or link-previewing, render it in the Worker.
+- **Static vs. dynamic rendering:** pages in `templates/pages/` are built by Eleventy at deploy time; dynamic content is Worker-rendered or injected via HTMX. No page is on the static-shell-plus-fetch pattern any more; don't add one back. If a page has content worth indexing or link-previewing, render it in the Worker.
+- **One page shell: `renderShell()` in `src/lib/shell.mjs`.** It is the only definition of the doctype, `<head>`, nav and footer. `renderFullPage()` calls it for Worker pages; `scripts/gen-layout.mjs` calls it during `npm run build` to *generate* `templates/layouts/base.njk` for Eleventy. Edit the chrome there and nowhere else — `base.njk` carries a `{# GENERATED FILE #}` banner and `test/shell.test.ts` renders both sides and diffs them byte for byte, so a hand-edited layout or a stale committed one fails the suite instead of drifting quietly.
 - **Route ids:** parse with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`. `parseInt("12abc", 10)` is `12` and passes `Number.isFinite()`, which silently turns a malformed URL into a lookup of a different row.
 - **Handler order:** check the session *before* querying anything keyed on a user-supplied id. Querying first leaks row existence through the status code to callers who are not allowed to see it.
 - **HTMX pattern:** `/api/components/*` return raw HTML fragments, not JSON.

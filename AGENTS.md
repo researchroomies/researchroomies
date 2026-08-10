@@ -45,25 +45,30 @@ researchroomies/
 │       ├── config.ts         # getConfig() – origin, TTLs, sitekey, Mailgun, admin email
 │       ├── auth.ts           # Token generation/verification (HMAC-SHA256), .edu gate
 │       ├── session.ts        # getSessionUser() / sessionUserId() – cookie → payload
-│       ├── html.ts           # escapeHtml, date formatting, renderFullPage, summarize
+│       ├── shell.mjs         # renderShell() – THE page chrome; generates base.njk
+│       ├── html.ts           # date formatting, renderFullPage, summarize, escapeHtml re-export
 │       ├── response.ts       # htmlResponse/pageResponse/fragmentResponse +
 │       │                     #   notFoundPage/forbiddenPage/errorPage
 │       ├── params.ts         # parseRouteId() – strict numeric route ids
 │       ├── turnstile.ts      # verifyTurnstile()
 │       ├── mailgun.ts        # Email sending (magic link, inquiry, abuse report)
 │       └── router.ts         # Custom path-param router
+├── scripts/
+│   └── gen-layout.mjs        # Writes templates/layouts/base.njk from shell.mjs
 ├── templates/
 │   ├── pages/                # Eleventy source pages (Nunjucks .njk)
 │   ├── style/style.css       # Source CSS – copied to public/style/
 │   └── layouts/
-│       └── base.njk          # Base HTML layout (header, footer, HTMX)
+│       └── base.njk          # GENERATED from src/lib/shell.mjs – do not edit
 ├── public/                   # Eleventy output – DO NOT EDIT DIRECTLY (gitignored)
 ├── db/
 │   └── schema.sql            # D1 schema (SQLite)
 ├── test/
 │   ├── auth_verification.test.ts   # Magic link + session token crypto
 │   ├── routing.test.ts             # Router matching + trailing slashes
+│   ├── shell.test.ts               # Static layout vs. renderFullPage(), byte for byte
 │   ├── params.test.ts              # parseRouteId()
+│   ├── config.test.ts              # getConfig() defaults, origin derivation, TTL agreement
 │   └── assets.test.ts              # Route-ownership guards (runs in node, not workerd)
 ├── wrangler.toml             # Cloudflare config (D1 binding, routes, assets)
 ├── vitest.config.mts         # Vitest + @cloudflare/vitest-pool-workers
@@ -91,7 +96,7 @@ When you edit a `.njk` template, you must run `npm run build` (Eleventy) before 
 
 ### 2. Worker-rendered full pages
 
-`/conference/:slug`, `/subject/:slug`, `/post/:id`, `/my-posts`, `/search`, and the post edit/delete/report pages are rendered server-side by the Worker using `renderFullPage()` from `src/lib/html.ts`. It is a hand-maintained twin of `base.njk` and renders the same nav, **including** the `#nav-user-state` and `#nav-subjects` HTMX spans.
+`/conference/:slug`, `/subject/:slug`, `/post/:id`, `/my-posts`, `/search`, and the post edit/delete/report pages are rendered server-side by the Worker using `renderFullPage()` from `src/lib/html.ts`. It is a thin wrapper over `renderShell()` in `src/lib/shell.mjs` — the same function that generates `base.njk` — so Worker pages and Eleventy pages get the same chrome by construction, `#nav-user-state` and `#nav-subjects` HTMX spans included.
 
 Signature:
 
@@ -291,15 +296,32 @@ Must be run after any template change before deploying. The Worker serves `publi
 
 **Adding a page here can break a Worker route.** Cloudflare serves a matching static asset before invoking the Worker, so `templates/pages/foo.njk` (which builds to `public/foo/index.html`) will shadow a registered `GET /foo` handler. Either don't create the template, or add the path to `run_worker_first` in `wrangler.toml`.
 
-### Base layout (`templates/layouts/base.njk`)
+### Base layout (`templates/layouts/base.njk`) — GENERATED, do not edit
 
-Provides the full HTML shell: `<head>` with CSS + HTMX CDN, nav with Login/Logout HTMX component (`#nav-user-state`), and footer. All Eleventy pages `{% extends "base.njk" %}` and fill `{% block content %}`.
+Provides the full HTML shell: `<head>` with meta/OpenGraph tags, CSS and the HTMX + Turnstile CDN scripts, nav with the Login/Logout HTMX component (`#nav-user-state`), and footer. All Eleventy pages `{% extends "base.njk" %}` and fill `{% block content %}`.
 
-The `renderFullPage()` function in `src/lib/html.ts` is a separate copy of this shell used for Worker-rendered pages. Both copies render the same nav, including `#nav-user-state` and `#nav-subjects`. `base.njk`'s `{% block head %}` corresponds to `renderFullPage()`'s `options` argument. Keep the two in sync — see "Keeping the two layouts in sync" below.
+**It is generated from `renderShell()` in `src/lib/shell.mjs`** by `scripts/gen-layout.mjs`, which runs ahead of Eleventy in `npm run build`. Edits to the file itself are overwritten by the next build and rejected by `test/shell.test.ts`. Change the chrome in `shell.mjs`, run `npm run build`, and commit the regenerated layout alongside it.
 
-### Eleventy data
+`renderFullPage()` in `src/lib/html.ts` calls the same `renderShell()`, so Worker-rendered and Eleventy-built pages cannot drift. `test/shell.test.ts` re-renders the committed layout with the markers the generator emitted and asserts it is byte-identical to `renderFullPage()` output — head, footer, and whole document.
 
-`year` comes from Eleventy's built-ins. Subject tags are NOT Eleventy data — they live in D1 and are fetched at request time through the `/api/components/nav-subjects` and `/api/components/tag-options` HTMX fragments, so static and Worker-rendered pages show the same list without a rebuild.
+`base.njk` keeps one Nunjucks slot of its own, `{% block head %}`, for per-page `<style>`/`<script>` on static pages. It is written `{%- block head %}` on purpose: the whitespace-control dash means an empty block leaves no trace, which is what keeps a static `<head>` byte-equal to a Worker `<head>`.
+
+### Page front matter and Eleventy data
+
+Every page in `templates/pages/` carries `title` and `description` front matter:
+
+```yaml
+---
+title: About
+description: One sentence, ≤160 characters, used for <meta name="description"> and OpenGraph.
+---
+```
+
+`title` is **bare** — the shell appends ` – ResearchRoomies` (en dash) exactly as it does for `renderFullPage()`. Do not write the site name into a page title.
+
+Global data lives in `eleventy.config.js`: `year` (footer copyright) and `siteOrigin` (joined with `page.url` for `<link rel="canonical">` and `og:url`). `year` used to be referenced by the layout with nothing defining it, so every built page shipped a blank year.
+
+Subject tags are NOT Eleventy data — they live in D1 and are fetched at request time through the `/api/components/nav-subjects` and `/api/components/tag-options` HTMX fragments, so static and Worker-rendered pages show the same list without a rebuild.
 
 ---
 
@@ -314,7 +336,7 @@ Two consumers read that one var:
 - **Worker-rendered forms** call `turnstileWidget(env)` from `src/lib/turnstile.ts`, which emits the whole `<div class="cf-turnstile">`. Never write the div by hand.
 - **Eleventy pages** use `{{ turnstileSiteKey }}`, an Eleventy global. `eleventy.config.js` reads it back out of `wrangler.toml` at build time and **throws if it is missing**, so `npm run deploy` (which builds first) cannot ship a dead widget.
 
-The client script is loaded once in `templates/layouts/base.njk` and in `renderFullPage()`, so any page gets a working widget just by emitting the div.
+The client script is loaded once, by `renderShell()` in `src/lib/shell.mjs`, which is where both the generated `base.njk` and `renderFullPage()` get it — so any page gets a working widget just by emitting the div.
 
 Always verify with `verifyTurnstile(token, request, env)` from `src/lib/turnstile.ts`. **A missing token is a failure, not a skip.** Handlers used to guard with `if (token) { verify }`, which meant anything omitting the field passed unchallenged — and since the script was only loaded on `/login`, that was every create-post and inquiry submission.
 
@@ -422,6 +444,7 @@ The host must include the port; `--local-upstream localhost` yields `http://loca
 | `test/auth_verification.test.ts` | Magic link and session token generation, verification, signature tamper detection |
 | `test/routing.test.ts` | Router matching, path params, trailing-slash behaviour |
 | `test/params.test.ts` | `parseRouteId()` — rejects `12abc`, `0`, negatives, oversized ids |
+| `test/shell.test.ts` | The generated `base.njk` against `renderFullPage()` — head, footer and whole document byte for byte, plus the title/year/meta contracts |
 | `test/assets.test.ts` | Every route in `ROUTES` is unshadowed by `public/` and covered by `run_worker_first` |
 | `test/config.test.ts` | `getConfig()` defaults (each one pins a literal that used to be hardcoded), origin derivation and `APP_ORIGIN` override, `magicLinkUrl()`, Mailgun From resolution, and that the session token's `exp - iat` equals `SESSION_TTL_SECONDS` |
 
@@ -471,7 +494,7 @@ guix shell --container --emulate-fhs --network \
 ### Adding a new Eleventy page
 
 1. Confirm the page is genuinely static. If it needs DB or session data, it belongs in the Worker — do not create a shell that fetches its own content
-2. Create `templates/pages/yourpage.njk`, extend `base.njk`
+2. Create `templates/pages/yourpage.njk`, extend `base.njk`, and give it `title` (bare, no site name) and `description` front matter — the shell builds the title, meta description, OpenGraph tags and canonical link from them
 3. Run `npm run build` — Eleventy outputs `public/yourpage/index.html`
 4. The Worker will serve it automatically via `env.ASSETS.fetch()`
 5. No route registration needed in `src/routes.ts` unless the page needs dynamic data
@@ -514,11 +537,13 @@ Worker HTML is built by string concatenation, so **every interpolated value that
 
 Email bodies use the separate `escapeHtmlForEmail()` in `mailgun.ts` — see the Email section.
 
-### Keeping the two layouts in sync
+### Changing the page chrome
 
-`renderFullPage()` (in `src/lib/html.ts`) is the server-side twin of `templates/layouts/base.njk`. Both render the same nav, including the `#nav-user-state` and `#nav-subjects` HTMX spans. They are separate copies, so **any nav, header, or footer change must be made in both** — otherwise Worker-rendered pages drift out of sync with static ones, which is how `/my-posts` and `/conference/:slug` previously rendered with no Login/Logout button at all.
+Edit `renderShell()` in `src/lib/shell.mjs`, then run `npm run build` and commit the regenerated `templates/layouts/base.njk` with it. That is the whole procedure — there is no second copy to update.
 
-`base.njk`'s `{% block head %}` and `renderFullPage()`'s `options` argument are the same seam for per-page `<head>` content; extend both together too.
+This used to read "any nav, header, or footer change must be made in both," which is how `/my-posts` and `/conference/:slug` once rendered with no Login/Logout button at all: `renderFullPage()` was a separate copy and lost `#nav-user-state`. `test/shell.test.ts` now diffs the two rendered documents byte for byte, so that class of drift fails the test suite instead of reaching production.
+
+Per-page `<head>` content still has two entry points, because static and dynamic pages get it from different places: `{% block head %}` (plus `title` / `description` front matter) for Eleventy pages, the `options` argument for `renderFullPage()`. Both feed the same `renderShell()` parameters.
 
 ### D1 integer booleans
 
