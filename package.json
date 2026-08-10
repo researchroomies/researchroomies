@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "eleventy",
+    "build": "node scripts/gen-layout.mjs && eleventy",
     "deploy": "npm run build && wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",

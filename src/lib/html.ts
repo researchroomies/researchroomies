@@ -1,16 +1,14 @@
+import { renderShell } from './shell.mjs';
+
 /**
  * Worker-rendered HTML is built by string concatenation, so every interpolated
  * value that could originate from a user MUST pass through escapeHtml().
+ *
+ * Defined in `./shell.mjs` — which is plain ESM so Eleventy's build script can
+ * load it too — and re-exported here so `import { escapeHtml } from '../lib/html'`
+ * keeps working everywhere.
  */
-export function escapeHtml(value: unknown): string {
-    if (value === null || value === undefined) return '';
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
+export { escapeHtml } from './shell.mjs';
 
 /** Timestamps are Unix epoch seconds; conference dates are stored as UTC midnight. */
 export function formatDate(timestamp: number): string {
@@ -63,70 +61,24 @@ export function summarize(text: string, maxLength = 160): string {
 }
 
 /**
- * Server-side counterpart to templates/layouts/base.njk.
+ * Renders a full Worker page through the shared page shell.
  *
- * Keep the two navs in sync. Both load user state and subject links as HTMX
- * fragments so this function stays synchronous and DB-free. `options` is the
- * equivalent of base.njk's `{% block head %}`.
+ * The chrome itself lives in `src/lib/shell.mjs`, which also generates
+ * `templates/layouts/base.njk` — Worker-rendered and Eleventy-built pages come
+ * out of the same function, so there is nothing to keep in sync by hand.
+ * `test/shell.test.ts` diffs the two and fails if they diverge.
+ *
+ * `title` is bare; the shell appends the site name. `options` is the Worker's
+ * equivalent of the layout's per-page `description` / canonical front matter.
+ * Both sides load nav user state and subject links as HTMX fragments, so this
+ * stays synchronous and DB-free.
  */
 export function renderFullPage(title: string, content: string, options: PageOptions = {}): string {
-    const currentYear = new Date().getFullYear();
-    const fullTitle = `${title} – ResearchRoomies`;
-
-    // Crawlers and chat link-unfurlers do not run HTMX, so anything they should
-    // see has to be in the served HTML, not swapped in on load.
-    const metaHtml = [
-        options.description
-            ? `<meta name="description" content="${escapeHtml(options.description)}" />`
-            : '',
-        `<meta property="og:title" content="${escapeHtml(fullTitle)}" />`,
-        options.description
-            ? `<meta property="og:description" content="${escapeHtml(options.description)}" />`
-            : '',
-        `<meta property="og:type" content="website" />`,
-        options.canonicalUrl
-            ? `<meta property="og:url" content="${escapeHtml(options.canonicalUrl)}" />`
-            : '',
-        `<meta name="twitter:card" content="summary" />`,
-    ]
-        .filter(Boolean)
-        .join('\n  ');
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(fullTitle)}</title>
-  ${metaHtml}
-  ${options.canonicalUrl ? `<link rel="canonical" href="${escapeHtml(options.canonicalUrl)}" />` : ''}
-  <link rel="stylesheet" href="/style/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-</head>
-<body>
-  <header>
-    <div class="logo-nav">
-      <h1><a href="/">ResearchRoomies</a></h1>
-      <nav>
-        <a href="/search" class="nav-link">Search</a>
-        <a href="/create" class="nav-link">Create Post</a>
-        <span id="nav-user-state" hx-get="/api/components/nav-user" hx-trigger="load" hx-swap="outerHTML"></span>
-        <span id="nav-subjects" hx-get="/api/components/nav-subjects" hx-trigger="load" hx-swap="outerHTML"></span>
-      </nav>
-    </div>
-  </header>
-
-  <main>
-    ${content}
-  </main>
-
-  <footer>
-    <div class="fat-footer">
-      <p>&copy; ${currentYear} ResearchRoomies. All rights reserved.</p>
-      <a href="/about">About</a> | <a href="/terms">Terms</a> | <a href="/privacy">Privacy</a>
-    </div>
-  </footer>
-</body>
-</html>`;
+    return renderShell({
+        title,
+        description: options.description ?? '',
+        canonicalUrl: options.canonicalUrl ?? '',
+        content,
+        year: String(new Date().getFullYear()),
+    });
 }

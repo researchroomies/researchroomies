@@ -32,7 +32,7 @@ This project is built on [Cloudflare](https://developers.cloudflare.com/workers/
 
 **Static assets are matched *before* the Worker runs.** Adding `templates/pages/foo.njk` builds to `public/foo/index.html` and will silently shadow a `GET /foo` Worker route — the handler simply never runs. This is exactly how `/search` broke. Either don't create the template, or add the path to `run_worker_first` in `wrangler.toml`.
 
-**`renderFullPage()` in `src/lib/html.ts` is the server-side twin of `templates/layouts/base.njk`.** They drifted once and the Worker-rendered pages lost their nav login state. Change both together.
+**`templates/layouts/base.njk` is generated — do not edit it.** The page chrome lives once, in `renderShell()` (`src/lib/shell.mjs`); `scripts/gen-layout.mjs` writes the Eleventy layout from it during `npm run build`, and `renderFullPage()` calls the same function for Worker-rendered pages. `test/shell.test.ts` diffs the two byte for byte. This used to be two hand-maintained copies, and they drifted: Worker-rendered pages lost their nav login state.
 
 **Worker HTML is string-concatenated**, so every interpolated database or user value must pass through `escapeHtml()` from `src/lib/html.ts`.
 
@@ -129,7 +129,8 @@ npx wrangler secret put TURNSTILE_SECRET_KEY
 ├── src/
 │   ├── lib/
 │   │   ├── auth.ts         # Token generation/verification (HMAC-SHA256), .edu gate
-│   │   ├── html.ts         # escapeHtml() + renderFullPage() (twin of base.njk)
+│   │   ├── html.ts         # renderFullPage(), date helpers, escapeHtml() re-export
+│   │   ├── shell.mjs       # renderShell() – the one page chrome, generates base.njk
 │   │   ├── mailgun.ts      # Magic link, inquiry, and abuse-report email sending
 │   │   ├── router.ts       # Custom path-param router
 │   │   ├── session.ts      # Session cookie read/write, getSessionUser()
@@ -140,15 +141,18 @@ npx wrangler secret put TURNSTILE_SECRET_KEY
 │   │   ├── flags.ts        # Post reporting
 │   │   └── posts.ts        # Author-only post edit/delete
 │   └── index.ts            # Worker entry point and route registration
+├── scripts/
+│   └── gen-layout.mjs      # Writes templates/layouts/base.njk from shell.mjs
 ├── templates/
 │   ├── layouts/
-│   │   └── base.njk        # Base HTML layout (header, footer, HTMX)
+│   │   └── base.njk        # GENERATED from src/lib/shell.mjs – do not edit
 │   ├── pages/              # Eleventy source pages (.njk)
 │   ├── style/style.css     # Global stylesheet source
 │   └── README.md
 ├── test/
 │   ├── auth_verification.test.ts
 │   ├── routing.test.ts     # Trailing-slash redirects and route dispatch
+│   ├── shell.test.ts       # Generated layout vs. renderFullPage(), byte for byte
 │   ├── env.d.ts
 │   └── tsconfig.json
 ├── .dev.vars               # Local secrets (git-ignored, create by hand)
