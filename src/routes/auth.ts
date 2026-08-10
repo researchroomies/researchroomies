@@ -2,9 +2,18 @@ import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isE
 import { sendMagicLink } from '../lib/mailgun';
 import { COOKIE_NAME, getSessionUser } from '../lib/session';
 import { renderFullPage } from '../lib/html';
+import { formatTtlMinutes, getConfig, type AppConfig } from '../lib/config';
 
-const APP_ORIGIN = "https://researchroomies.com";
-const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
+/**
+ * Builds the link that goes in the login email.
+ *
+ * Split out from `handleAuthStart` so it can be asserted on without sending
+ * mail: the origin used to be a hardcoded production literal, which meant the
+ * only way to see what this produced was to receive a real email in production.
+ */
+export function magicLinkUrl(config: AppConfig, token: string): string {
+    return `${config.origin}/api/auth/callback?token=${encodeURIComponent(token)}`;
+}
 
 /**
  * The callback is reached by clicking a link in an email, so failures land in
@@ -21,6 +30,8 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
     if (request.method !== 'POST') {
         return new Response('Method Not Allowed', { status: 405 });
     }
+
+    const config = getConfig(env, request);
 
     try {
         const body = await request.json() as { email: string; cf_turnstile_response: string };
@@ -57,16 +68,17 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
         // 3. Optional institutional-email gate (RESTRICT_EDU_EMAILS)
         if (!isEmailAllowed(normalizedEmail, env)) {
             return new Response(
-                'Accounts are currently limited to .edu email addresses. If you are an academic without one, email admin@researchroomies.com and we will get you set up.',
+                `Accounts are currently limited to .edu email addresses. If you are an academic without one, email ${config.adminEmail} and we will get you set up.`,
                 { status: 403 }
             );
         }
 
         // 4. Create magic-link token
-        const token = await generateMagicLinkToken(normalizedEmail, env.AUTH_HMAC_SECRET);
+        const token = await generateMagicLinkToken(normalizedEmail, env.AUTH_HMAC_SECRET, config.magicLinkTtlSeconds);
 
-        // 5. Email link
-        const link = `${APP_ORIGIN}/api/auth/callback?token=${encodeURIComponent(token)}`;
+        // 5. Email link. The origin comes from the request unless APP_ORIGIN
+        // overrides it, so `wrangler dev` emails a link back to localhost.
+        const link = magicLinkUrl(config, token);
 
         // 6. Send Email
         // Never log `link` — it carries a valid login token for this address.
@@ -77,7 +89,7 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
             // will never receive anything, and a broken mailer stays invisible.
             console.error("Failed to send magic link to", normalizedEmail);
             return new Response(
-                'We could not send the login email just now. Please try again in a few minutes, or contact admin@researchroomies.com if the problem continues.',
+                `We could not send the login email just now. Please try again in a few minutes, or contact ${config.adminEmail} if the problem continues.`,
                 { status: 502 }
             );
         }
@@ -95,6 +107,7 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
 export async function handleAuthCallback(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const token = url.searchParams.get('token');
+    const config = getConfig(env, request);
 
     if (!token) {
         return callbackErrorPage(
@@ -110,7 +123,7 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
         if (!payload) {
             return callbackErrorPage(
                 'Login Link Expired',
-                'This login link is invalid or has expired. Login links are good for 15 minutes &mdash; please <a href="/login">request a new one</a>.',
+                `This login link is invalid or has expired. Login links are good for ${formatTtlMinutes(config.magicLinkTtlSeconds)} &mdash; please <a href="/login">request a new one</a>.`,
                 400
             );
         }
@@ -120,7 +133,7 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
         if (!isEmailAllowed(payload.email, env)) {
             return callbackErrorPage(
                 'Account Not Eligible',
-                'Accounts are currently limited to .edu email addresses. If you are an academic without one, email <a href="mailto:admin@researchroomies.com">admin@researchroomies.com</a> and we will get you set up.',
+                `Accounts are currently limited to .edu email addresses. If you are an academic without one, email <a href="mailto:${config.adminEmail}">${config.adminEmail}</a> and we will get you set up.`,
                 403
             );
         }
@@ -150,12 +163,17 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
             userId = user.id.toString();
         }
 
-        // 3. Issue session token
-        const sessionToken = await generateSessionToken(now, payload.email, userId, env.AUTH_HMAC_SECRET);
+        // 3. Issue session token.
+        // The token's `exp` and the cookie's `Max-Age` below are derived from
+        // this one local. They used to be two independent 30-day constants in
+        // two files; if those ever diverged the cookie would outlive the token
+        // (a silent logout) or discard a still-valid one.
+        const sessionTtl = config.sessionTtlSeconds;
+        const sessionToken = await generateSessionToken(now, payload.email, userId, env.AUTH_HMAC_SECRET, sessionTtl);
 
         // 4. Set cookie and redirect
         const headers = new Headers();
-        headers.append('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL}`);
+        headers.append('Set-Cookie', `${COOKIE_NAME}=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${sessionTtl}`);
         headers.append('Location', '/');
 
         return new Response(null, {
@@ -169,7 +187,7 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
         console.error("Auth callback error:", e);
         return callbackErrorPage(
             'Login Failed',
-            'Something went wrong while signing you in. Please <a href="/login">try again</a>, or contact <a href="mailto:admin@researchroomies.com">admin@researchroomies.com</a> if it keeps happening.',
+            `Something went wrong while signing you in. Please <a href="/login">try again</a>, or contact <a href="mailto:${config.adminEmail}">${config.adminEmail}</a> if it keeps happening.`,
             500
         );
     }

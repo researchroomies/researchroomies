@@ -1,6 +1,6 @@
 import { sendReportEmail } from "../lib/mailgun";
 import { getSessionUser } from "../lib/session";
-import { verifyTurnstile } from "../lib/turnstile";
+import { turnstileWidget, verifyTurnstile } from "../lib/turnstile";
 import { escapeHtml, renderFullPage } from "../lib/html";
 import { parseRouteId } from "../lib/params";
 
@@ -18,7 +18,7 @@ const REPORT_REASONS = [
   "Other",
 ];
 
-function renderReportForm(post: ReportablePost): string {
+function renderReportForm(env: Env, post: ReportablePost): string {
   const optionsHtml = REPORT_REASONS.map(
     (reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`,
   ).join("");
@@ -38,7 +38,7 @@ function renderReportForm(post: ReportablePost): string {
         </select>
         <label for="details">Additional details (optional)</label>
         <textarea name="details" id="details" rows="5"></textarea>
-        <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
+        ${turnstileWidget(env)}
         <button type="submit">Submit Report</button>
       </form>
     </div>
@@ -94,7 +94,7 @@ export async function handleReportForm(
       );
     }
 
-    const content = renderReportForm(post);
+    const content = renderReportForm(env, post);
 
     return new Response(renderFullPage("Report Post", content), {
       headers: {

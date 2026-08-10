@@ -1,6 +1,6 @@
 import { sendInquiryEmail } from "../lib/mailgun";
 import { getSessionUser, sessionUserId } from "../lib/session";
-import { verifyTurnstile } from "../lib/turnstile";
+import { turnstileWidget, verifyTurnstile } from "../lib/turnstile";
 import {
   escapeHtml,
   formatDate,
@@ -676,6 +676,7 @@ async function getPostDetail(
 }
 
 function renderPostDetail(
+  env: Env,
   post: PostDetail,
   viewer: { isLoggedIn: boolean; isAuthor: boolean; sent: boolean },
 ): string {
@@ -685,7 +686,7 @@ function renderPostDetail(
           <input type="hidden" name="post_id" value="${post.id}" />
           <label>Message</label>
           <textarea name="content" rows="5" required></textarea>
-          <div class="cf-turnstile" data-sitekey="0x4AAAAAAByAHmDummOs9UGm"></div>
+          ${turnstileWidget(env)}
           <button type="submit">Send</button>
         </form>
     `
@@ -767,7 +768,7 @@ export async function handlePostPage(
     const user = await getSessionUser(request, env);
     const url = new URL(request.url);
 
-    const content = `<div class="site-page">${renderPostDetail(post, {
+    const content = `<div class="site-page">${renderPostDetail(env, post, {
       isLoggedIn: user !== null,
       isAuthor: user !== null && sessionUserId(user) === post.user_id,
       sent: url.searchParams.get("sent") === "1",
@@ -833,7 +834,7 @@ export async function handleComponentPost(
 
     const user = await getSessionUser(request, env);
 
-    const html = renderPostDetail(post, {
+    const html = renderPostDetail(env, post, {
       isLoggedIn: user !== null,
       isAuthor: user !== null && sessionUserId(user) === post.user_id,
       sent: new URL(request.url).searchParams.get("sent") === "1",

@@ -1,4 +1,20 @@
+import { getConfig } from './config';
+import { escapeHtml } from './html';
+
 const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+/**
+ * The client-side widget, for Worker-rendered forms.
+ *
+ * The sitekey used to be a literal repeated at four sites across two languages,
+ * so rotating the widget meant four edits and a wrong key failed visibly only
+ * on the page you happened to look at. It now comes from `[vars]` in
+ * wrangler.toml; the two Nunjucks pages read the same var through an Eleventy
+ * global. The Turnstile script itself is loaded by the page shell.
+ */
+export function turnstileWidget(env: Env): string {
+    return `<div class="cf-turnstile" data-sitekey="${escapeHtml(getConfig(env).turnstileSiteKey)}"></div>`;
+}
 
 /**
  * Verifies a Turnstile token server-side.
