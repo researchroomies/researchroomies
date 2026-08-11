@@ -1,5 +1,6 @@
 import { sendInquiryEmail } from "../lib/mailgun";
-import { getSessionUser, sessionUserId } from "../lib/session";
+import { sessionUserId } from "../lib/session";
+import { optionalUser, requireUser } from "../lib/guards";
 import { turnstileWidget, verifyTurnstile } from "../lib/turnstile";
 import {
   escapeHtml,
@@ -242,14 +243,11 @@ export async function handleComponentCreateFormAuth(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  const user = await getSessionUser(request, env);
-
-  if (!user) {
-    return new Response("", {
-      status: 200,
-      headers: { "HX-Redirect": "/login" },
-    });
-  }
+  // 'htmx': this is swapped into a live page, so the redirect has to travel as
+  // a header on a 200 rather than as a 302 the fetch would follow invisibly.
+  const guard = await requireUser(request, env, "htmx");
+  if (!guard.ok) return guard.response;
+  const user = guard.value;
 
   const html = `<div id="auth-email-container"><label>Email</label><input type="email" name="email" value="${escapeHtml(user.email)}" readonly /></div>`;
   // Contains the viewer's own email address — private is the default here.
@@ -377,10 +375,9 @@ export async function handleCreatePost(
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const user = await getSessionUser(request, env);
-  if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const guard = await requireUser(request, env, "api");
+  if (!guard.ok) return guard.response;
+  const user = guard.value;
 
   try {
     const formData = await request.formData();
@@ -519,10 +516,9 @@ export async function handleMessageSend(
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const user = await getSessionUser(request, env);
-  if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const guard = await requireUser(request, env, "api");
+  if (!guard.ok) return guard.response;
+  const user = guard.value;
 
   try {
     const formData = await request.formData();
@@ -701,7 +697,7 @@ export async function handlePostPage(
       return notFoundPage("Post");
     }
 
-    const user = await getSessionUser(request, env);
+    const user = await optionalUser(request, env);
     const url = new URL(request.url);
 
     const content = `<div class="site-page">${renderPostDetail(env, post, {
@@ -753,7 +749,7 @@ export async function handleComponentPost(
       });
     }
 
-    const user = await getSessionUser(request, env);
+    const user = await optionalUser(request, env);
 
     const html = renderPostDetail(env, post, {
       isLoggedIn: user !== null,
@@ -777,7 +773,7 @@ export async function handleComponentNavUser(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  const user = await getSessionUser(request, env);
+  const user = await optionalUser(request, env);
 
   const html = user
     ? `<a href="/my-posts" class="nav-link">My Posts</a> <a href="#" hx-post="/api/auth/logout" class="nav-link">Logout</a>`
@@ -794,10 +790,9 @@ export async function handleMyPosts(
   _ctx: ExecutionContext,
   _params?: Record<string, string>,
 ): Promise<Response> {
-  const user = await getSessionUser(request, env);
-  if (!user) {
-    return Response.redirect(new URL("/login", request.url).href, 302);
-  }
+  const guard = await requireUser(request, env, "page");
+  if (!guard.ok) return guard.response;
+  const user = guard.value;
 
   try {
     const query = `

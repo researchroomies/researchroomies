@@ -33,29 +33,33 @@ are no handler tests.
 
 "At review" is the working tree on 2026-08-10 when this backlog was written,
 after the Round 2 hardening pass described in `CLAUDE.md`. "Now" is the same
-measurement after Tasks 1, 4 and 5 landed on `main` the same day.
+measurement after Tasks 1, 4 and 5 landed on `main` that day and Task 2 landed
+on 2026-08-11.
 
 | Metric | At review | Now | Closed by |
 |---|---|---|---|
-| `src/routes/api.ts` | 1,199 lines | **1,079** | partially Task 1; Task 6 is the real fix |
+| `src/routes/api.ts` | 1,199 lines | **1,074** | partially Tasks 1–2; Task 6 is the real fix |
 | `renderFullPage()` call sites | 29 | **1** (`pageResponse`) | Task 1 |
-| `try {` blocks in `src/` | 24 | 25 | Task 2/3 territory |
+| `try {` blocks in `src/` | 24 | 24 | Task 3 territory |
 | `"text/html"` vs `"text/html; charset=utf-8"` | 29 / 12 | **0 / 1**, inside `response.ts` | Task 1 |
-| `getSessionUser()` call sites | 15 | 14 | **Task 2** |
-| `DB.prepare()` call sites | 30 | 27 | **Task 3** |
+| `getSessionUser()` call sites | 15 | **3** (2 in `guards.ts`, 1 in `handleAuthMe`) | Task 2 |
+| `DB.prepare()` call sites | 30 | 24 | **Task 3** |
 | Turnstile sitekey literals | 4 | **0** in `src/`+`templates/`, 1 in `wrangler.toml` | Task 5 |
 | `SESSION_TTL` definitions | 2 | **1** | Task 5 |
 | Hand-built HTML `new Response` | 41 | **0** | Task 1 |
+| Inline ownership comparisons | 4 | **0** (`requireOwnedPost`) | Task 2 |
+| `src/routes/posts.ts` | 258 lines | **140** | Task 2 |
 | Handler tests | 0 | 0 | **Task 3** |
-| Test count | 21 across 3 files | **100 across 6 files** | Tasks 1, 4, 5 |
+| Test count | 21 across 3 files | **150 across 8 files** | Tasks 1, 2, 4, 5 |
 
 `src/` is ~2,900 lines of TypeScript. `api.ts` alone is 37% of it — down from
 43%, but still the largest file by a wide margin.
 
-The 38 remaining `new Response(...)` sites are bare-text 4xx/405s, redirects and
-the two JSON endpoints in `auth.ts`. They were deliberately left alone by Task 1:
-converting them would change the wire format, and their status codes are Task 2's
-subject matter.
+The 33 remaining `new Response(...)` sites are bare-text 4xx/405s, redirects and
+the two JSON endpoints in `auth.ts`. Task 2 converted the auth failures among
+them into `requireUser()`'s three documented modes; what is left is request-body
+validation (`Missing required fields`), `405`s, and the JSON endpoints, whose
+wire format is deliberately unchanged.
 
 ---
 
@@ -101,9 +105,11 @@ silently. Three of the four are now guarded by a test rather than a paragraph.
    uncovered or shadowed by a built asset.
    → [Task 1](01-response-module-and-route-guards.md), landed
 
-3. ⬜ **Turnstile always goes through `verifyTurnstile()`.** `src/routes/auth.ts`
-   still hand-rolls its own siteverify call and ignores the module.
-   → [Task 2](02-auth-and-ownership-guards.md)
+3. ✅ **Turnstile always goes through `verifyTurnstile()`.** `src/routes/auth.ts`
+   hand-rolled its own siteverify call and ignored the module.
+   `test/session-access.test.ts` now fails on the string `siteverify` anywhere
+   outside `lib/turnstile.ts`.
+   → [Task 2](02-auth-and-ownership-guards.md), landed
 
 4. ⬜ **Every interpolated value passes `escapeHtml()`.** Currently held
    everywhere — Round 2 closed the last gap in `sendInquiryEmail`. Nothing
@@ -121,13 +127,22 @@ silently. Three of the four are now guarded by a test rather than a paragraph.
 ## Testability
 
 At review there were 190 lines of tests, all against pure functions: `Router`,
-token crypto, `isEmailAllowed`, `parseRouteId`. Tasks 1, 4 and 5 took the suite
-from **21 tests across 3 files to 100 across 6**, adding three kinds of test the
-repo did not have:
+token crypto, `isEmailAllowed`, `parseRouteId`. Tasks 1, 2, 4 and 5 took the
+suite from **21 tests across 3 files to 150 across 8**, adding four kinds of test
+the repo did not have:
 
 - **Structural guards** (`assets.test.ts`) — reads `ROUTES` and asserts no built
   asset shadows a route and `run_worker_first` covers every one. Runs in plain
   node, not workerd, because it needs `node:fs`.
+- **Source greps as invariants** (`session-access.test.ts`) — no `getSessionUser`
+  outside `lib/guards.ts`, no inline ownership comparison in `posts.ts`, no
+  `siteverify` outside `lib/turnstile.ts`. Comments are stripped first, so the
+  comment explaining a rule cannot trip it. Also node-only.
+- **Failure-shape matrices** (`guards.test.ts`) — `requireUser` across all three
+  modes against every way a session can be absent (no cookie, no session cookie,
+  malformed, forged, expired), asserting the exact status, `Location` and
+  `HX-Redirect` of each refusal. This is where the three-answers-to-one-question
+  problem would come back.
 - **Byte-diff of two renderers** (`shell.test.ts`) — the committed `base.njk`
   against `renderFullPage()`, head, footer and whole document.
 - **Config defaults as assertions** (`config.test.ts`) — each default pins the
@@ -137,8 +152,10 @@ repo did not have:
 **There are still no handler tests.** That is not a discipline gap — it is a
 consequence of the shape. A handler takes `(Request, Env, ExecutionContext)` and
 reaches straight into `env.DB` with raw SQL, so exercising one requires a real
-database and a real HTTP round trip. The 72 end-to-end assertions from the
-earlier review round were run by hand against `wrangler dev` and no longer exist.
+database and a real HTTP round trip. Task 2's failure-mode table was verified
+that way — by hand against `wrangler dev` with a seeded local D1 and minted
+session cookies — and those assertions, like the 72 from the earlier review
+round, do not survive as tests.
 
 `@cloudflare/vitest-pool-workers` is configured and provides a real D1 in
 process, and nothing uses it. [Task 3](03-repository-module.md) is what makes
@@ -155,11 +172,11 @@ belongs in the node project — do not narrow the default run to one of them.
 | # | Task | Size | Depends on | Status |
 |---|---|---|---|---|
 | 1 | [Response module + route-ownership guard tests](01-response-module-and-route-guards.md) | Medium | — | ✅ landed 2026-08-10 |
-| 2 | [Auth and ownership guards](02-auth-and-ownership-guards.md) | Medium | 1 (soft) — **now satisfied** | ⬜ ready |
-| 3 | [Repository module](03-repository-module.md) | Large | 1, 2 (soft) | ⬜ 1 satisfied; 2 outstanding |
+| 2 | [Auth and ownership guards](02-auth-and-ownership-guards.md) | Medium | 1 | ✅ landed 2026-08-11 |
+| 3 | [Repository module](03-repository-module.md) | Large | 1, 2 (soft) | ⬜ ready — both satisfied |
 | 4 | [Collapse the two page shells](04-single-page-shell.md) | Small–medium | — | ✅ landed 2026-08-10 |
 | 5 | [Configuration module](05-config-module.md) | Small | — | ✅ landed 2026-08-10 |
-| 6 | [Split `api.ts`](06-split-api-routes.md) | Small after 1–3 | 1, 2, 3 (hard) | ⬜ blocked on 2 + 3 |
+| 6 | [Split `api.ts`](06-split-api-routes.md) | Small after 1–3 | 1, 2, 3 (hard) | ⬜ blocked on 3 |
 
 Tasks 1, 4 and 5 were run in parallel by three agents in separate git worktrees
 and merged in that order. All conflicts were unions — import lists, Eleventy
@@ -168,15 +185,13 @@ globals, doc sections — with no semantic collisions.
 ## Remaining order
 
 ```
-Task 2 (auth guards) ── dependency on 1 satisfied; ready to start
+Task 3 (repository) ── 1 and 2 both satisfied; ready to start
         │
-Task 3 (repository) ── 1 satisfied, benefits from 2
-        │
-Task 6 (split api.ts) ── hard dep on 2 + 3
+Task 6 (split api.ts) ── hard dep on 3
 ```
 
-What is left is a chain, not a fan-out: 2 → 3 → 6 must go in order, so there is
-no parallelism to exploit the way there was for 1/4/5. Task 3 is the one worth
+What is left is a chain, not a fan-out: 3 → 6 must go in order, so there is no
+parallelism to exploit the way there was for 1/4/5. Task 3 is the one worth
 reserving for whoever knows the data model best — it is the only remaining task
 where a silent behaviour change is likely.
 

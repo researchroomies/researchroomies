@@ -13,18 +13,18 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 - `src/routes/auth.ts` – Magic link login/logout/session
 - `src/routes/posts.ts` – Author-only post edit/delete
 - `src/routes/flags.ts` – Post reporting
-- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`
+- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`
 - `templates/pages/` – Eleventy (Nunjucks) page templates
 - `templates/layouts/base.njk` – **generated** from `shell.mjs`; do not edit
 - `db/schema.sql` – D1 schema (idempotent; safe to re-run)
 
 ---
 
-## Current State — updated 2026-08-10
+## Current State — updated 2026-08-11
 
-Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **Refactor tasks 1, 4 and 5 have since landed** (see `docs/refactor/`); tasks 2, 3 and 6 remain.
+Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **Refactor tasks 1, 2, 4 and 5 have since landed** (see `docs/refactor/`); tasks 3 and 6 remain.
 
-Suite is **100 tests across 6 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Suite is **150 tests across 8 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Trailing-slash 404 on every Worker route — fixed 2026-08-10
 
@@ -131,6 +131,52 @@ Three live bugs closed with it:
 
 ---
 
+### Refactor Task 2 — auth and ownership guards, 2026-08-11
+
+`src/lib/guards.ts` is now the only thing that resolves a session. It went in
+because one condition — "not logged in" — had three different answers spread
+across ten handlers with the rule written down nowhere, so a new handler picked
+one at random.
+
+- **The three failure modes are documented on the `GuardMode` type**, and only
+  there. `requireUser(request, env, mode)` with `'page'` → 302 to `/login`,
+  `'api'` → 401 plain text, `'htmx'` → 200 + `HX-Redirect`. Each of the ten
+  converted handlers keeps the mode it already had; the shapes were checked
+  against `wrangler dev`, not just read.
+- **Guards return a value, not a throw.** `{ ok: true, value } | { ok: false,
+  response }`, so the failure stays an ordinary `return` at the call site and no
+  guard has to know whether it sits inside a `try`.
+- **`requireOwnedPost()` replaces four hand-written copies** of session → parse
+  id → fetch row → compare `user_id`. `posts.ts` went 258 → 140 lines and now
+  contains no ownership comparison at all. The `AND user_id = ?` clauses stay on
+  the `UPDATE`/`DELETE` as defence in depth — the guard makes them redundant,
+  not wrong.
+- **`optionalUser()` is the deliberate-anonymity path**, for `/post/:id`, the
+  component fragment and the nav, which render for anyone but differ for the
+  author. Its existence is what makes "no `getSessionUser` outside guards" a
+  rule with no exceptions worth arguing about — `handleAuthMe` is the single
+  documented one, because reporting the raw session is its entire purpose.
+- **The login route no longer hand-rolls siteverify.** `handleAuthStart` called
+  `fetch()` against Cloudflare directly, which meant the one route where a
+  Turnstile bypass matters most was the one route not going through the module
+  written to prevent exactly that. It calls `verifyTurnstile()` now.
+- **`flags.ts`'s 400-vs-404 split is decided: 404.** A malformed post id and a
+  missing post are the same thing to the caller, and `posts.ts` already said
+  404. Both flags sites moved (the GET's 400 error page and the POST's bare
+  `"Invalid post"` text).
+- **`test/session-access.test.ts`** holds all three invariants as greps over
+  `src/`: no `getSessionUser` outside the two allowed files, no `user_id !==` in
+  `posts.ts`, no `siteverify` outside `lib/turnstile.ts`. It strips comments
+  before matching, so a comment explaining a rule does not trip it. Runs in the
+  node project alongside `assets.test.ts`; `vitest.config.mts` now shares one
+  `NODE_ONLY` list between the two projects instead of naming the file twice.
+- **Deliberate behaviour change beyond the auth table:** the two mutating
+  handlers in `posts.ts` returned bare `"Internal Server Error"` text on a D1
+  failure while their GET siblings rendered the error page. They are plain form
+  POSTs whose response the browser displays, so both now return `errorPage()`.
+
+---
+
 ## Open decisions
 
 ### `.edu` email restriction — built as a switch, currently OFF
@@ -149,10 +195,9 @@ The gate is implemented and off by default, so this is now a config decision rat
 
 ## Backlog
 
-- **Refactor tasks 2, 3 and 6 remain** — see `docs/refactor/`. They are a chain, not a fan-out: 2 (auth/ownership guards) → 3 (repository module) → 6 (split `api.ts`), each a soft or hard dependency of the next, so there is no parallelism left to exploit. Task 3 is the highest-leverage one and the only thing standing between the repo and handler tests.
+- **Refactor tasks 3 and 6 remain** — see `docs/refactor/`. Still a chain: 3 (repository module) → 6 (split `api.ts`), so there is no parallelism to exploit. Task 3 is the highest-leverage one and the only thing standing between the repo and handler tests.
 - **The custom 404 page is probably never served.** `not_found_handling = "404-page"` looks for `public/404.html`, but Eleventy emits `public/404/index.html`. Found while verifying Task 4; not yet confirmed against production.
 - **Worker pages are inconsistent about `description` / `canonicalUrl`.** `renderShell()` omits the meta and canonical tags when a handler passes nothing, which is the case for `/search`, `/my-posts` and the edit/delete/report pages. Task 4 fixed the shell and the nine static pages; this is the remaining half, and it is per-handler content rather than shell shape.
-- **`flags.ts` returns 400 for a malformed post id where `posts.ts` returns 404.** Same condition, two answers. Task 1 preserved both deliberately rather than picking one; it is a behaviour decision for Task 2. Flagged in a comment at the site.
 - **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
 - **`www.researchroomies.com` returns 522 for every path.** Only the apex is bound: `[[routes]]` in `wrangler.toml` has `pattern = "researchroomies.com"` with no `www` record or redirect. Found while diagnosing the search report; unrelated to search, but any inbound `www` link is currently dead.
 - **Production `tags` drift from `db/schema.sql`.** Prod serves 5 tags with short slugs (`bio`, `chem`, `cs`, `math`, `physics`); the schema seeds 12 with long ones (`biology`, `chemistry`, `computer-science`, …). Re-running `db/schema.sql` against prod would *add* the 12 rather than reconcile, leaving a duplicated subject list. Decide which slug set is canonical and migrate before re-running the seed.
@@ -180,9 +225,9 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Routes live in `src/routes.ts`, not `index.ts`.** Add a `{ method, path, handler }` entry to `ROUTES`, without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`. `test/assets.test.ts` reads `ROUTES` and fails if you forget either.
 - **Deployment literals live in `src/lib/config.ts`.** `getConfig(env, request?)` is the only place an origin, TTL, sitekey, Mailgun setting or admin address is defined. The session TTL in particular has exactly one definition feeding both the cookie `Max-Age` and the token `exp` — they were two independent constants agreeing by coincidence, and divergence is a silent logout.
 - **Route ids:** parse with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`. `parseInt("12abc", 10)` is `12` and passes `Number.isFinite()`, which silently turns a malformed URL into a lookup of a different row.
-- **Handler order:** check the session *before* querying anything keyed on a user-supplied id. Querying first leaks row existence through the status code to callers who are not allowed to see it.
+- **Handler order:** check the session *before* querying anything keyed on a user-supplied id. Querying first leaks row existence through the status code to callers who are not allowed to see it. The guards do this by construction.
 - **HTMX pattern:** `/api/components/*` return raw HTML fragments, not JSON.
-- **Session auth:** cookie-based signed tokens, no DB lookup per request. Use `getSessionUser(request, env)` from `src/lib/session.ts`; `sessionUserId(user)` gives the numeric `users.id`. Never trust an id from a form body — re-check ownership against the DB row on every mutating request.
+- **Session auth: one entry point, `src/lib/guards.ts`.** Cookie-based signed tokens, no DB lookup per request. `requireUser(request, env, mode)` for anything that needs a user, `optionalUser()` where anonymous is fine, `requireOwnedPost()` for the post edit/delete family. Never call `getSessionUser()` from a handler — `test/session-access.test.ts` fails the build if you do. The three failure modes (`'page'` 302, `'api'` 401, `'htmx'` 200 + `HX-Redirect`) are documented on the `GuardMode` type and nowhere else; that folklore living in ten handlers instead is what the task fixed. Never trust an id from a form body — `requireOwnedPost()` re-checks ownership against the DB row.
 - **Escaping:** Worker HTML is string-concatenated. Every interpolated DB or user value must pass through `escapeHtml()`.
 - **Turnstile:** always verify with `verifyTurnstile()`; a missing token is a failure, never a skip.
 - **Database:** D1 (SQLite). `env.DB.prepare(...).bind(...).first()` / `.all()` / `.run()` / `.batch([...])`. Timestamps are Unix epoch seconds.

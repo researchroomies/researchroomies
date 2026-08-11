@@ -1,9 +1,9 @@
 import { sendReportEmail } from "../lib/mailgun";
-import { getSessionUser } from "../lib/session";
 import { turnstileWidget, verifyTurnstile } from "../lib/turnstile";
 import { escapeHtml } from "../lib/html";
 import { errorPage, notFoundPage, pageResponse } from "../lib/response";
 import { parseRouteId } from "../lib/params";
+import { requireUser } from "../lib/guards";
 
 interface ReportablePost {
   id: number;
@@ -57,21 +57,15 @@ export async function handleReportForm(
   // caller got a 302 for a post that exists and a 404 for one that does not,
   // turning this route into a membership oracle over the posts table. Every
   // other handler checks the session first; this one was inverted.
-  const user = await getSessionUser(request, env);
-  if (!user) {
-    return Response.redirect(new URL("/login", request.url).href, 302);
-  }
+  const guard = await requireUser(request, env, "page");
+  if (!guard.ok) return guard.response;
 
+  // 404, not the 400 this used to answer with. A malformed id and a missing
+  // post are the same thing to the caller — an id that names nothing — and
+  // posts.ts already said 404. One answer now, from both files.
   const parsedPostId = parseRouteId(params?.id);
   if (parsedPostId === null) {
-    // Deliberately 400 rather than notFoundPage()'s 404: posts.ts answers the
-    // same condition with a 404 and the two should probably agree, but that is
-    // a behaviour decision, not part of this response-plumbing change.
-    return pageResponse(
-      "Error",
-      `<div class="site-page"><h2>Error</h2><p>Post ID is required.</p></div>`,
-      { status: 400, cache: "none" },
-    );
+    return notFoundPage("Post");
   }
 
   try {
@@ -110,14 +104,15 @@ export async function handleReportSubmit(
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const user = await getSessionUser(request, env);
-  if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const guard = await requireUser(request, env, "api");
+  if (!guard.ok) return guard.response;
+  const user = guard.value;
 
+  // 404 for the same reason as the GET above; this is the site that used to
+  // answer 400 in bare text while posts.ts rendered a 404 page.
   const parsedPostId = parseRouteId(params?.id);
   if (parsedPostId === null) {
-    return new Response("Invalid post", { status: 400 });
+    return notFoundPage("Post");
   }
 
   try {

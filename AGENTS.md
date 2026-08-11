@@ -45,6 +45,8 @@ researchroomies/
 │       ├── config.ts         # getConfig() – origin, TTLs, sitekey, Mailgun, admin email
 │       ├── auth.ts           # Token generation/verification (HMAC-SHA256), .edu gate
 │       ├── session.ts        # getSessionUser() / sessionUserId() – cookie → payload
+│       ├── guards.ts         # requireUser() / optionalUser() / requireOwnedPost()
+│       │                     #   THE way a handler asks for a session
 │       ├── shell.mjs         # renderShell() – THE page chrome; generates base.njk
 │       ├── html.ts           # date formatting, renderFullPage, summarize, escapeHtml re-export
 │       ├── response.ts       # htmlResponse/pageResponse/fragmentResponse +
@@ -69,7 +71,9 @@ researchroomies/
 │   ├── shell.test.ts               # Static layout vs. renderFullPage(), byte for byte
 │   ├── params.test.ts              # parseRouteId()
 │   ├── config.test.ts              # getConfig() defaults, origin derivation, TTL agreement
-│   └── assets.test.ts              # Route-ownership guards (runs in node, not workerd)
+│   ├── guards.test.ts              # requireUser() × 3 modes × every anonymous case
+│   ├── assets.test.ts              # Route-ownership guards (runs in node, not workerd)
+│   └── session-access.test.ts      # getSessionUser/ownership/siteverify greps (node)
 ├── wrangler.toml             # Cloudflare config (D1 binding, routes, assets)
 ├── vitest.config.mts         # Vitest + @cloudflare/vitest-pool-workers
 ├── eleventy.config.js        # Eleventy config
@@ -183,18 +187,49 @@ To add a new route: export a handler from a file in `src/routes/`, then add a `{
 
 ### Verifying a session in a handler
 
-There is no middleware — each handler that needs a session asks for one. Use `getSessionUser()` from `src/lib/session.ts`; do **not** hand-roll cookie parsing:
+There is no middleware — each handler that needs a session asks for one. Ask through `src/lib/guards.ts`, never `getSessionUser()` directly:
 
 ```typescript
-import { getSessionUser, sessionUserId } from '../lib/session';
+import { requireUser } from '../lib/guards';
 
-const user = await getSessionUser(request, env);
-if (!user) return new Response('Unauthorized', { status: 401 });
+const guard = await requireUser(request, env, 'api');
+if (!guard.ok) return guard.response;
+const user = guard.value;
 ```
 
-`getSessionUser` returns a `SessionPayload` (`sub` = user id as a string, `email`) or `null` when the request is anonymous or the token is missing, expired, or tampered with. `sessionUserId(user)` converts `sub` to the number needed to compare against DB columns.
+A guard returns `{ ok: true, value }` or `{ ok: false, response }` — the refusal is an ordinary value the handler returns, so there is no exception path to remember and no dependence on the surrounding try/catch.
 
-**Check the session before querying anything keyed on a user-supplied id.** Querying first leaks row existence through the status code — `handleReportForm` did exactly this, returning 302 for a real post id and 404 for a missing one to callers who were not even logged in.
+**`mode` picks the failure shape, and the reason for each is documented on the `GuardMode` type — read it there, it is the only copy:**
+
+| mode | Failure | For |
+|---|---|---|
+| `'page'` | 302 → `/login` | Full page navigations |
+| `'api'` | 401 `Unauthorized`, plain text | Form POSTs and JSON endpoints |
+| `'htmx'` | 200 + `HX-Redirect: /login` | Fragments swapped into a live page |
+
+The `'htmx'` case is not a stylistic choice: HTMX issues its requests with `fetch()`, which follows a 302 transparently and would swap the entire login page into a `<div>`. It also ignores response headers on a non-2xx, so the 200 is load-bearing.
+
+For handlers that render for everyone but render *differently* for the author — the post page, the nav — use `optionalUser(request, env)`, which returns `SessionPayload | null`. It is a deliberate word rather than a missing `if`.
+
+`test/session-access.test.ts` fails the build if `getSessionUser` is called anywhere but `lib/guards.ts` and `handleAuthMe` (which reports the raw session as its whole purpose).
+
+`sessionUserId(user)` converts `sub` to the number needed to compare against DB columns.
+
+**Check the session before querying anything keyed on a user-supplied id.** Querying first leaks row existence through the status code — `handleReportForm` did exactly this, returning 302 for a real post id and 404 for a missing one to callers who were not even logged in. Every guard does the session check first, so using one gets this right by construction.
+
+### Acting on a post the caller must own
+
+```typescript
+import { requireOwnedPost } from '../lib/guards';
+
+const guard = await requireOwnedPost(request, env, params);
+if (!guard.ok) return guard.response;
+const { user, post } = guard.value;
+```
+
+Session → id parse → row fetch → ownership comparison, in one call: 302 when anonymous, 404 for a malformed id or a missing post, 403 for someone else's. It catches its own D1 errors and returns `errorPage()`, so the call needs no `try` around it.
+
+This existed as three inline steps repeated in four handlers, and forgetting the middle one is silent. Do not re-implement it — `test/session-access.test.ts` fails on a `user_id !==` comparison in `routes/posts.ts`. Keep the `AND user_id = ?` clauses on the `UPDATE`/`DELETE` statements: the guard makes them redundant, not wrong.
 
 ### Magic link flow
 
@@ -489,10 +524,10 @@ guix shell --container --emulate-fhs --network \
 
 ### Adding a new protected API endpoint
 
-1. `const user = await getSessionUser(request, env)` from `../lib/session` — returns null when anonymous. Do this **first**, before any DB lookup keyed on a user-supplied id
-2. Return `401` (API/POST endpoints) or redirect to `/login` (page loads) if `user` is null
-3. Parse ids with `parseRouteId()`; treat `null` as 400/404, never as "try anyway"
-4. For anything mutating, re-load the row and compare against `sessionUserId(user)` — never trust an id from the form body
+1. `const guard = await requireUser(request, env, mode)` from `../lib/guards`, with `mode` picked from the table above. Do this **first**, before any DB lookup keyed on a user-supplied id; `if (!guard.ok) return guard.response`
+2. Do not invent a fourth answer to "not logged in". If none of the three modes fits, that is a change to `GuardMode`, made once, with the reason written down there
+3. Parse ids with `parseRouteId()`; treat `null` as 404, never as "try anyway"
+4. For anything mutating a post, use `requireOwnedPost()` — it re-loads the row and compares ownership, so an id from the form body is never trusted
 5. Verify Turnstile on anything a bot could hammer
 6. Escape every interpolated value with `escapeHtml()`
 7. Wrap the handler body in try/catch and return a rendered error page — a throw that escapes becomes the runtime's bare 500 with no page. Log the real error with `console.error`; **never** put `err.message` in the response, it leaks D1 table and constraint names

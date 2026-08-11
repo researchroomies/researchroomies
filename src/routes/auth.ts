@@ -1,6 +1,7 @@
 import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isEmailAllowed } from '../lib/auth';
 import { sendMagicLink } from '../lib/mailgun';
 import { COOKIE_NAME, getSessionUser } from '../lib/session';
+import { verifyTurnstile } from '../lib/turnstile';
 import { pageResponse } from '../lib/response';
 import { formatTtlMinutes, getConfig, type AppConfig } from '../lib/config';
 
@@ -46,20 +47,12 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
             return new Response('Missing email or Turnstile response', { status: 400 });
         }
 
-        // 1. Verify Turnstile
-        const turnstileBody = new FormData();
-        turnstileBody.append('secret', env.TURNSTILE_SECRET_KEY);
-        turnstileBody.append('response', cf_turnstile_response);
-        turnstileBody.append('remoteip', request.headers.get('CF-Connecting-IP') || '');
-
-        const turnVerify = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-            method: 'POST',
-            body: turnstileBody,
-        });
-
-        const turnResult = await turnVerify.json() as any;
-        if (!turnResult.success) {
-            console.error("Turnstile failed:", turnResult);
+        // 1. Verify Turnstile.
+        // This used to be a hand-rolled siteverify fetch, which meant the login
+        // route — where a bypass matters most — was the one place not going
+        // through the module whose entire job is "a missing token is a failure,
+        // not a skip".
+        if (!await verifyTurnstile(cf_turnstile_response, request, env)) {
             return new Response('Invalid Turnstile', { status: 400 });
         }
 
@@ -207,6 +200,10 @@ export async function handleAuthLogout(request: Request, env: Env, ctx: Executio
 }
 
 export async function handleAuthMe(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // The only getSessionUser() call outside lib/guards.ts, and deliberately so:
+    // this endpoint's whole purpose is to report the raw session, so there is no
+    // guard decision to make. Everywhere else goes through requireUser() or
+    // optionalUser(); test/session-access.test.ts holds that line.
     const user = await getSessionUser(request, env);
 
     return new Response(JSON.stringify({ user }), {

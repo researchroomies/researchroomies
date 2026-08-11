@@ -1,5 +1,33 @@
 # Task 2 — Auth and ownership guards
 
+> ## ✅ Landed 2026-08-11
+>
+> `src/lib/guards.ts` exists; `api.ts`, `posts.ts` and `flags.ts` all go through
+> it; `routes/auth.ts` calls `verifyTurnstile()`. Suite went 100 → 150 tests.
+>
+> **Every acceptance criterion is met.** Three decisions worth knowing:
+>
+> - **The 400-vs-404 split is resolved as 404.** Both `flags.ts` sites moved —
+>   the GET's 400 error page and the POST's bare `"Invalid post"` text. A
+>   malformed id and a missing post are the same thing to the caller, and
+>   `posts.ts` already said 404.
+> - **`optionalUser()` was added** beyond the proposed interface. The criterion
+>   "`getSessionUser()` is called only from `guards.ts` and `handleAuthMe`"
+>   covers the three handlers that tolerate anonymity (`/post/:id`, the post
+>   fragment, the nav), and they needed a name for that rather than a bare
+>   re-export used by habit.
+> - **One failure shape changed outside the auth table, deliberately.** The two
+>   mutating handlers in `posts.ts` answered a D1 error with bare
+>   `"Internal Server Error"` text while their GET siblings rendered the error
+>   page. They are plain form POSTs whose body the browser displays; both now
+>   return `errorPage()`. No auth failure mode changed — the table at the bottom
+>   of this file was re-run against `wrangler dev` and every row matches.
+>
+> The verification below was executed, not just read: logged out for the six
+> rows, then signed in as a non-author (403 Forbidden page on all four
+> edit/delete routes), as the author (200, and a real edit read back out of D1),
+> and against missing and malformed ids (404 throughout).
+
 **Size:** Medium
 **Depends on:** Task 1 — ✅ **landed 2026-08-10, so this is ready to start.**
 `notFoundPage()` / `forbiddenPage()` / `errorPage()` are in `src/lib/response.ts`
