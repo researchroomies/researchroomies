@@ -1,5 +1,28 @@
 # Task 1 — Response construction module + route-ownership guard tests
 
+> ## ✅ Landed 2026-08-10
+>
+> `src/lib/response.ts`, `src/routes.ts` and `test/assets.test.ts` are on `main`.
+> `src/index.ts` went 93 → 39 lines; `api.ts` lost 231. Suite went 21 → 65 tests
+> at the time of this task's merge.
+>
+> **Deliberate behaviour changes**, all three verified against `wrangler dev`:
+> 1. Fragments gained `charset=utf-8` — the point of the task.
+> 2. Responses that previously sent *no* `Cache-Control` now send `no-store`.
+>    The `Cache` union has no "omit" member, and omission is not a policy. This
+>    affects 404/500 pages and error fragments only.
+> 3. Per-handler 404/500 copy ("Failed to load your posts") collapsed into the
+>    generic `notFoundPage()` / `errorPage()` text.
+>
+> **Left for Task 2 on purpose:** `flags.ts` answers a malformed post id with
+> **400** where `posts.ts` answers **404**. Unifying them is a behaviour
+> decision, not response plumbing; there is a comment at the site.
+>
+> **Known rough edge:** `test/assets.test.ts` imports `node:fs` without
+> `@types/node` installed, so editors show a squiggle. It does not affect
+> `tsc --noEmit` (which excludes `test/`), the build, or the suite. Fix with
+> `npm i -D @types/node`.
+
 **Size:** Medium (mechanical, but touches every route file)
 **Depends on:** nothing
 **Risk:** Low — a missed conversion is visible in the diff
@@ -134,19 +157,45 @@ is worse than no test. Either:
 - have the test invoke the build itself, or
 - assert `public/` exists and fail loudly if it does not.
 
+**As implemented:** the last option plus the first. Every assertion routes
+through `requirePublicDir()`, which throws a pointed error naming `npm run check`
+if `public/` is missing, and `npm run check` (`build && vitest run && tsc`) was
+added to `package.json`.
+
+Two implementation notes worth keeping:
+
+- The tests had to move to a **second vitest project**. `vitest.config.mts` uses
+  `defineWorkersConfig`, so everything ran inside workerd, which has no
+  `node:fs`. It now declares a `workers` project and a `node` project; plain
+  `npx vitest run` runs both.
+- Test B's wildcard matching mirrors `generateGlobOnlyRuleRegExp()` from
+  Cloudflare's own asset router (vendored in miniflare) rather than guessing:
+  rules are anchored at both ends and `*` becomes `.*`, so `*` **does** cross
+  `/` and `/post/*` genuinely covers `/post/1/edit`.
+
 ---
 
 ## Acceptance criteria
 
-- [ ] Zero occurrences of `"Content-Type": "text/html"` outside
-      `src/lib/response.ts`.
-- [ ] `src/index.ts` is under ~40 lines; `ROUTES` is importable by tests.
-- [ ] `notFoundPage` / `forbiddenPage` / `errorPage` live in `lib/` and are used
-      by `api.ts`, `posts.ts` and `flags.ts`.
-- [ ] Both guard tests present and passing, with `wrangler.toml` corrected.
-- [ ] Guard tests fail loudly rather than skipping when `public/` is missing.
-- [ ] **Regression rehearsal:** add a stub `templates/pages/conference.njk`,
-      confirm Test A fails, then remove it. Record the result in the PR.
+- [x] Zero occurrences of `"Content-Type": "text/html"` outside
+      `src/lib/response.ts`. — verified: `grep -rn text/html src/` returns only
+      that file.
+- [x] `src/index.ts` is under ~40 lines; `ROUTES` is importable by tests. — 39
+      lines; `test/assets.test.ts` imports `ROUTES` directly.
+- [x] `notFoundPage` / `forbiddenPage` / `errorPage` live in `lib/` and are used
+      by `api.ts`, `posts.ts` and `flags.ts`. — also `auth.ts`.
+- [x] Both guard tests present and passing, with `wrangler.toml` corrected.
+      Test B failed on first run for 6 routes, exactly as predicted;
+      `/conference/*`, `/subject/*` and `/post/*` were added.
+- [x] Guard tests fail loudly rather than skipping when `public/` is missing. —
+      verified empirically by moving `public/` aside: 22 failures with the
+      intended message, never a silent pass.
+- [x] **Regression rehearsal** — stub `templates/pages/conference.njk` added and
+      rebuilt: `Tests 1 failed | 64 passed`, failing with
+      `public/conference/ exists and shadows the route /conference/:slug`.
+      Removing the template *and* the stale `public/conference/` directory
+      restored 65/65. Eleventy does not clean `public/`, so a deleted template
+      leaves built output behind that still shadows the route — worth knowing.
 
 ---
 

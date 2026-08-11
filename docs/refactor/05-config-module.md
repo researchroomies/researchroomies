@@ -1,5 +1,33 @@
 # Task 5 — Configuration module
 
+> ## ✅ Landed 2026-08-10
+>
+> `src/lib/config.ts` is on `main`. **No manual step is needed before deploying:**
+> `TURNSTILE_SITE_KEY` ships in the committed `wrangler.toml`, no secret was
+> rotated, and the four optional overrides are unset and default to today's
+> values.
+>
+> **The three open decisions, as resolved:**
+> 1. **`[vars]` + an Eleventy global**, not a shared partial. A partial still
+>    holds the key in a `.njk` file, leaving two definitions in two languages.
+>    `wrangler.toml` is now the only place it exists; `eleventy.config.js` parses
+>    it back out at build time and **throws if absent**, and `npm run deploy`
+>    builds first, so a dead widget cannot ship. Verified by commenting the var
+>    out and watching the build fail.
+> 2. **Documentation fix for `MAILGUN_SENDING_KEY`**, not a rename — renaming
+>    means hand-rotating a deployed secret for zero functional gain.
+>    `config.mailgun.from` carries the correct meaning.
+> 3. **Yes to generating the TTL copy.** Both email bodies and the expired-link
+>    page get "15 minutes" from `formatTtlMinutes(MAGIC_LINK_TTL_SECONDS)`.
+>
+> **One intentional micro-deviation:** `MAILGUN_SENDING_KEY` is now trimmed. A
+> whitespace-padded value was broken before (`" login "` → `" login @domain"`),
+> so this can only fix a config, never change a working one.
+>
+> **TTLs were deliberately left as constants**, not env-overridable — fewer `Env`
+> fields, no parse-failure mode, and "exactly one definition" is what the
+> criterion asked for.
+
 **Size:** Small
 **Depends on:** nothing
 **Risk:** Low, but it touches auth and email — verify a real login end-to-end
@@ -10,6 +38,8 @@ before deploying
 ## Problem
 
 Deployment configuration is scattered as literals across six files.
+
+Line numbers below are as of the review; they have since shifted.
 
 | Value | Locations |
 |---|---|
@@ -60,6 +90,23 @@ export function getConfig(env: Env, request?: Request): AppConfig;
   Dev and preview then work with no configuration at all, and the current
   hardcoded production value becomes an override rather than a requirement.
 
+  > ⚠️ **This premise is wrong about `wrangler dev`, and the task proved it.**
+  > Because `wrangler.toml` declares `[[routes]] pattern = "researchroomies.com"`,
+  > `wrangler dev` synthesizes the request URL from that route
+  > (`--local-upstream` defaults to "dev.host or route"). Plain `npm run dev`
+  > therefore still yields `http://researchroomies.com/api/auth/callback?...`
+  > even though the code is now correct. Pinning it takes a flag:
+  >
+  > ```bash
+  > npx wrangler dev --port 8787 --local-upstream localhost:8787 --upstream-protocol http
+  > ```
+  >
+  > No committed fix was made, because every committed form (`[dev] host`, or
+  > baking the flag into the `dev` script) has to hardcode a port — and
+  > `--local-upstream localhost` without one drops the port entirely, yielding an
+  > unclickable `http://localhost`. Documented in `AGENTS.md` and the `CLAUDE.md`
+  > backlog instead.
+
 - **Add `TURNSTILE_SITE_KEY` (the public key) to `[vars]` in `wrangler.toml`**
   and expose it to templates via an Eleventy global, so the two `.njk` sitekeys
   read from the same source as the two TypeScript ones. Alternatively, render the
@@ -86,14 +133,23 @@ export function getConfig(env: Env, request?: Request): AppConfig;
 
 ## Acceptance criteria
 
-- [ ] Exactly one definition each of the session TTL and the Turnstile sitekey.
-- [ ] No `researchroomies.com` literal anywhere in `src/` outside
-      `src/lib/config.ts`.
-- [ ] A magic link generated under `wrangler dev` points at localhost.
-- [ ] **Existing production behaviour is unchanged when the new vars are unset.**
-      Every default must reproduce today's value exactly — this task should be
-      invisible in production.
-- [ ] `worker-configuration.d.ts` reflects any new `Env` fields.
+- [x] Exactly one definition each of the session TTL and the Turnstile sitekey. —
+      `grep 0x4AAA src/ templates/` returns nothing; the only site is
+      `wrangler.toml`. `SESSION_TTL_SECONDS` is one constant.
+- [x] No `researchroomies.com` literal anywhere in `src/` outside
+      `src/lib/config.ts`. — the `iss: 'researchroomies'` token claim in
+      `lib/auth.ts` is deliberately untouched; changing it invalidates every live
+      session.
+- [x] A magic link generated under `wrangler dev` points at localhost — **with
+      the `--local-upstream` flag above.** Captured verbatim:
+      `http://localhost:8805/api/auth/callback?token=...`. The doc's claim that
+      this needs no configuration is wrong; see the note in Design notes.
+- [x] **Existing production behaviour is unchanged when the new vars are unset.**
+      Each default checked against the literal it replaced, and pinned by 23 unit
+      assertions in `test/config.test.ts`.
+- [x] `worker-configuration.d.ts` reflects any new `Env` fields. —
+      `TURNSTILE_SITE_KEY` (required) plus optional `APP_ORIGIN`,
+      `MAILGUN_DOMAIN`, `MAILGUN_API_BASE`, `ADMIN_EMAIL`.
 
 ---
 
@@ -112,3 +168,45 @@ The auth path is the risk. With `wrangler dev` running in the FHS container:
    the page you look at — check all three.
 4. Confirm a report email still reaches `admin@researchroomies.com` with a
    correct post link.
+
+### ⚠️ Do not send real mail while verifying
+
+`.dev.vars` holds a live Mailgun key, and steps 1 and 4 both send to third
+parties. Stub the API instead:
+
+```bash
+npx wrangler dev --port 8787 \
+  --local-upstream localhost:8787 --upstream-protocol http \
+  --var MAILGUN_API_BASE:http://127.0.0.1:8899/v3 \
+  --var TURNSTILE_SECRET_KEY:1x0000000000000000000000000000000AA
+```
+
+Run any HTTP server on 8899 to capture the multipart body. The second `--var` is
+Cloudflare's always-passing Turnstile test secret, so forms submit without a
+browser. CLI `--var` does override `.dev.vars` — confirmed.
+
+### Results
+
+**Step 2 — the bug this task exists to prevent.** Real login followed, payload
+decoded:
+
+```
+payload : {"v":1,"sub":"3",...,"iat":1786401066,"exp":1788993066,"aud":"session"}
+exp - iat     : 2592000
+cookie Max-Age: 2592000
+SESSION_TTL   : 2592000        → MATCH
+```
+
+Cookie attributes byte-identical to before (`HttpOnly; Secure; SameSite=Lax;
+Path=/`). Logout still emits `Max-Age=0` + `HX-Redirect: /`.
+
+**Step 3 — four sites, not three.** The doc lists `/login`, `/create` and
+`/post/:id/report`; `/post/:id` also renders a widget for its inquiry form. All
+four serve `data-sitekey="0x4AAAAAAByAHmDummOs9UGm"`, two from Eleventy and two
+from the Worker.
+
+**Step 4 —** captured, not delivered: `to: admin@researchroomies.com`,
+`Link: https://researchroomies.com/post/3`,
+`POST /v3/researchroomies.com/messages`,
+`from: Research Roomies <login@researchroomies.com>` — all identical to
+pre-change.

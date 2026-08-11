@@ -1,10 +1,25 @@
 # Task 2 — Auth and ownership guards
 
 **Size:** Medium
-**Depends on:** Task 1 (soft — for `notFoundPage`/`forbiddenPage` in `lib/`;
-otherwise inline them and let Task 1 dedupe)
+**Depends on:** Task 1 — ✅ **landed 2026-08-10, so this is ready to start.**
+`notFoundPage()` / `forbiddenPage()` / `errorPage()` are in `src/lib/response.ts`
+now; import them rather than inlining anything.
 **Risk:** Low–medium — verify each converted handler keeps its original failure
 mode; a silent change from 302 to 401 breaks the HTMX flows
+
+> **What Task 1 changed under this task's feet:**
+> - Routes moved from `src/index.ts` to the `ROUTES` array in `src/routes.ts`.
+> - Handler bodies are shorter; failure branches now return `pageResponse(...)`
+>   or the three shared error pages instead of hand-built `new Response`.
+> - The 15 `getSessionUser()` call sites are now 14 — the count moved for
+>   unrelated reasons, so re-measure before trusting the table below.
+> - **One inconsistency was left here deliberately:** `flags.ts` answers a
+>   malformed post id with **400**, `posts.ts` with **404**. Task 1 preserved
+>   both rather than picking one, because that is a behaviour decision. Pick one
+>   here and say which in the PR.
+> - Bare-text failures (`new Response('Unauthorized', { status: 401 })`) were
+>   *not* converted by Task 1 — converting them changes the wire format, and
+>   their shape is exactly what this task is about.
 
 ---
 

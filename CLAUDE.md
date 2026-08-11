@@ -7,20 +7,24 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 **Stack:** Cloudflare Workers (TypeScript) + D1 (SQLite) + Eleventy (static pages) + HTMX
 
 **Key files:**
-- `src/index.ts` – Worker entry point, route registration
+- `src/index.ts` – Worker entry point: fetch handler, trailing-slash redirect, asset fallthrough. ~39 lines, no route list
+- `src/routes.ts` – the `ROUTES` table + `createRouter()`; the single declaration of what the Worker owns
 - `src/routes/api.ts` – Page renders + API handlers
 - `src/routes/auth.ts` – Magic link login/logout/session
 - `src/routes/posts.ts` – Author-only post edit/delete
 - `src/routes/flags.ts` – Post reporting
-- `src/lib/` – `auth` (HMAC tokens), `session`, `turnstile`, `html`, `router`, `mailgun`
+- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`
 - `templates/pages/` – Eleventy (Nunjucks) page templates
+- `templates/layouts/base.njk` – **generated** from `shell.mjs`; do not edit
 - `db/schema.sql` – D1 schema (idempotent; safe to re-run)
 
 ---
 
 ## Current State — updated 2026-08-10
 
-Eric Burkholder's first feedback round is fully implemented, and the follow-up review of that work has been closed out. Verified with 72 end-to-end assertions against `wrangler dev` plus the unit suite; `tsc --noEmit` and `npm run build` are clean.
+Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **Refactor tasks 1, 4 and 5 have since landed** (see `docs/refactor/`); tasks 2, 3 and 6 remain.
+
+Suite is **100 tests across 6 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Trailing-slash 404 on every Worker route — fixed 2026-08-10
 
@@ -66,7 +70,7 @@ degrade into a GET. Covered by `test/routing.test.ts`.
 
 - **Asset shadowing of `/search`.** `templates/pages/search.njk` built to `public/search/index.html`, and Cloudflare serves a matching asset *before* invoking the Worker, so `handleSearch` never ran. The template is deleted, `/search` is listed in `run_worker_first`, and search now filters on keywords (`q`), conference name, subject tag, and date range. `conference.njk` and `subject.njk` were deleted for the same reason — all three were Eleventy shells the Worker fully renders.
 - **Route registration is no longer prefix-guessed.** `src/index.ts` used a hand-maintained `/^\/(api|conference|post)\//` regex to decide what was dynamic. It now asks `router.match()`, so a registered route can never be stranded behind a stale regex again.
-- **Turnstile was inert.** The client script only loaded on `/login`, so create-post and inquiry forms never produced a token — and both handlers used `if (token) { verify }`, silently skipping the check. The script is now in `base.njk` and `renderFullPage()`, and `verifyTurnstile()` in `src/lib/turnstile.ts` treats a missing token as failure.
+- **Turnstile was inert.** The client script only loaded on `/login`, so create-post and inquiry forms never produced a token — and both handlers used `if (token) { verify }`, silently skipping the check. The script went into both page shells (one shell since Task 4), and `verifyTurnstile()` in `src/lib/turnstile.ts` treats a missing token as failure.
 - **Stored XSS.** Post titles, descriptions, conference names, locations, and page titles were interpolated raw. Everything now goes through `escapeHtml()` from `src/lib/html.ts`.
 - **Nav login state on Worker-rendered pages.** `renderFullPage()` was a drifted copy of `base.njk` missing `#nav-user-state`. Both now render the same nav, with user state and subject links as HTMX fragments.
 - **Conference slug collisions.** `generateUniqueSlug()` suffixes duplicates (`-2`, `-3`), backed by a `UNIQUE` index.
@@ -85,6 +89,19 @@ degrade into a GET. Covered by `test/routing.test.ts`.
 - **`parseInt()` id validation was ineffective everywhere.** `parseInt("12abc", 10)` is `12` and `Number.isFinite()` accepts it, so malformed URLs resolved to unrelated rows. `parseRouteId()` in `src/lib/params.ts` requires all digits; `api.ts`, `posts.ts` (`parsePostId`) and `flags.ts` all route through it. Covered by `test/params.test.ts`.
 - **`/post/:id` is server-rendered.** It was the last page on the static-shell pattern: `post.njk` shipped "Loading post details…" plus inline JS that re-parsed the id out of `window.location` to fetch `/api/components/post/:id` — three round trips, and crawlers and link unfurlers never saw a title or description for the site's primary entity. `handlePostPage` now renders directly, with `<meta name="description">` and OpenGraph tags. `templates/pages/post.njk` is deleted. `/api/components/post/:id` is retained deliberately so old shells still in browser caches degrade to a working page.
 - **`renderFullPage()` takes an options object** (`description`, `canonicalUrl`) — the equivalent of `base.njk`'s `{% block head %}`. It still owns the title suffix, so callers pass a bare title.
+
+---
+
+### Refactor Task 1 — response module + route-ownership guards, 2026-08-10
+
+Two invariants that used to live in prose are now tests, and HTML responses have one construction path.
+
+- **`src/lib/response.ts` is the only place an HTML response is built.** `pageResponse` / `fragmentResponse` / `htmlResponse`, plus `notFoundPage()` / `forbiddenPage()` / `errorPage()`, which used to be private to `posts.ts` while `api.ts` and `flags.ts` hand-rolled their own. `charset=utf-8` is written once (it was 29 sites saying `text/html` and 12 saying `text/html; charset=utf-8`). Cache policy is a closed union — `'public-short'` / `'public-long'` / `'private'` / `'none'` — **defaulting to `'private'`**, so caching a session-varying fragment publicly takes a deliberate act.
+- **`errorPage()` takes no argument.** Round 2 fixed a handler that returned `"Internal Server Error: " + err.message` and leaked D1 constraint and table names; there is now no parameter to put them in.
+- **The route table moved to `src/routes.ts`.** `src/index.ts` went 93 → 39 lines and holds only the fetch handler, the trailing-slash 308, and the asset fallthrough. `ROUTES` is importable, which is what makes the guard tests possible.
+- **`test/assets.test.ts` guards asset shadowing and `run_worker_first`.** It reads `ROUTES` directly, so a new route is checked automatically. It failed on first run for six routes — `/conference/*`, `/subject/*` and `/post/*` were missing from `wrangler.toml` and have been added. Its wildcard matching mirrors Cloudflare's own asset rules engine (`*` crosses `/`, so `/post/*` covers `/post/1/edit`) rather than guessing.
+- **Two vitest projects now.** The guard tests need `node:fs` to read `public/` and `wrangler.toml`, which workerd does not have. `vitest.config.mts` declares a `workers` project and a `node` project; plain `npx vitest run` runs both — do not narrow it. They fail loudly rather than skipping when `public/` is absent.
+- **Deliberate behaviour changes:** fragments gained `charset=utf-8`; responses that previously sent no `Cache-Control` now send `no-store` (404/500 pages and error fragments only); per-handler 404/500 copy collapsed into the generic shared text.
 
 ---
 
@@ -132,11 +149,16 @@ The gate is implemented and off by default, so this is now a config decision rat
 
 ## Backlog
 
+- **Refactor tasks 2, 3 and 6 remain** — see `docs/refactor/`. They are a chain, not a fan-out: 2 (auth/ownership guards) → 3 (repository module) → 6 (split `api.ts`), each a soft or hard dependency of the next, so there is no parallelism left to exploit. Task 3 is the highest-leverage one and the only thing standing between the repo and handler tests.
+- **The custom 404 page is probably never served.** `not_found_handling = "404-page"` looks for `public/404.html`, but Eleventy emits `public/404/index.html`. Found while verifying Task 4; not yet confirmed against production.
+- **Worker pages are inconsistent about `description` / `canonicalUrl`.** `renderShell()` omits the meta and canonical tags when a handler passes nothing, which is the case for `/search`, `/my-posts` and the edit/delete/report pages. Task 4 fixed the shell and the nine static pages; this is the remaining half, and it is per-handler content rather than shell shape.
+- **`flags.ts` returns 400 for a malformed post id where `posts.ts` returns 404.** Same condition, two answers. Task 1 preserved both deliberately rather than picking one; it is a behaviour decision for Task 2. Flagged in a comment at the site.
+- **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
 - **`www.researchroomies.com` returns 522 for every path.** Only the apex is bound: `[[routes]]` in `wrangler.toml` has `pattern = "researchroomies.com"` with no `www` record or redirect. Found while diagnosing the search report; unrelated to search, but any inbound `www` link is currently dead.
 - **Production `tags` drift from `db/schema.sql`.** Prod serves 5 tags with short slugs (`bio`, `chem`, `cs`, `math`, `physics`); the schema seeds 12 with long ones (`biology`, `chemistry`, `computer-science`, …). Re-running `db/schema.sql` against prod would *add* the 12 rather than reconcile, leaving a duplicated subject list. Decide which slug set is canonical and migrate before re-running the seed.
 - **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users.
 - **The homepage's featured-conference list is still HTMX-loaded.** `templates/pages/index.njk` fetches `/api/featured-conferences` on load, so crawlers see the homepage copy but none of the conference links. Smaller than the `/post/:id` case just fixed — the page has real content of its own and the same conferences are reachable from `/search` and `/subject/:slug` — but it is the last place where indexable links exist only after JS runs. Fixing it means either server-rendering `/` (it is currently a static asset) or accepting the gap.
-- **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `getPostDetail()` / `renderPostDetail()` with `handlePostPage`, so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler, the `router.add` line in `src/index.ts`, and the row in the AGENTS.md route table.
+- **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `getPostDetail()` / `renderPostDetail()` with `handlePostPage`, so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler, its entry in `ROUTES` (`src/routes.ts`), and the row in the AGENTS.md route table. `test/assets.test.ts` reads `ROUTES`, so nothing else needs updating.
 - **Post creation is not atomic (known limit).** Creating a post against a *new* conference is three separate writes: conference insert, tag batch, post insert. If the post insert fails, the conference survives as an orphan and holds its slug, so the user's retry gets `-2` appended to it. `batch()` cannot fix this — the post insert needs the id the conference insert `RETURNING`s, and `batch()` has no way to pipe one statement's output into the next. A real fix needs either a different API shape or a periodic sweep of conferences with zero posts. Noted in a comment at the top of the `conferenceId === "new"` branch in `handleCreatePost`.
 - **Moderation review.** `flags` rows are written and emailed to `admin@researchroomies.com`, but there is no in-app review UI. That needs an admin concept (`users.is_admin` or similar), which the schema does not have.
 - **Structured locations.** `countries` / `states` / `cities` and `conferences.city_id` remain intentionally dormant; city/state are free text. Revisit if location-based search is wanted.
@@ -154,6 +176,9 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Trailing slashes.** Worker routes are slashless and `Router.match()` is `$`-anchored. `src/index.ts` redirects `/foo/` → `/foo` with a 308, but *only* when the trimmed path is a registered route — Eleventy assets are genuinely directory-style, so `/about/` must keep falling through to `env.ASSETS.fetch()`. Register new routes without a trailing slash and this keeps working.
 - **Static vs. dynamic rendering:** pages in `templates/pages/` are built by Eleventy at deploy time; dynamic content is Worker-rendered or injected via HTMX. No page is on the static-shell-plus-fetch pattern any more; don't add one back. If a page has content worth indexing or link-previewing, render it in the Worker.
 - **One page shell: `renderShell()` in `src/lib/shell.mjs`.** It is the only definition of the doctype, `<head>`, nav and footer. `renderFullPage()` calls it for Worker pages; `scripts/gen-layout.mjs` calls it during `npm run build` to *generate* `templates/layouts/base.njk` for Eleventy. Edit the chrome there and nowhere else — `base.njk` carries a `{# GENERATED FILE #}` banner and `test/shell.test.ts` renders both sides and diffs them byte for byte, so a hand-edited layout or a stale committed one fails the suite instead of drifting quietly.
+- **One response path: `src/lib/response.ts`.** Never hand-build `new Response(html, { headers })`. `pageResponse()` for Worker pages, `fragmentResponse()` for `/api/components/*`, and `notFoundPage()` / `forbiddenPage()` / `errorPage()` for failures. `opts.cache` is a closed union defaulting to `'private'`; `errorPage()` takes no argument so an exception message cannot reach the client. Bare-text 4xx/405s, redirects and the two JSON endpoints in `auth.ts` are still plain `new Response` on purpose — converting them would change the wire format, and their shapes are Task 2's subject.
+- **Routes live in `src/routes.ts`, not `index.ts`.** Add a `{ method, path, handler }` entry to `ROUTES`, without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`. `test/assets.test.ts` reads `ROUTES` and fails if you forget either.
+- **Deployment literals live in `src/lib/config.ts`.** `getConfig(env, request?)` is the only place an origin, TTL, sitekey, Mailgun setting or admin address is defined. The session TTL in particular has exactly one definition feeding both the cookie `Max-Age` and the token `exp` — they were two independent constants agreeing by coincidence, and divergence is a silent logout.
 - **Route ids:** parse with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`. `parseInt("12abc", 10)` is `12` and passes `Number.isFinite()`, which silently turns a malformed URL into a lookup of a different row.
 - **Handler order:** check the session *before* querying anything keyed on a user-supplied id. Querying first leaks row existence through the status code to callers who are not allowed to see it.
 - **HTMX pattern:** `/api/components/*` return raw HTML fragments, not JSON.
@@ -162,3 +187,4 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Turnstile:** always verify with `verifyTurnstile()`; a missing token is a failure, never a skip.
 - **Database:** D1 (SQLite). `env.DB.prepare(...).bind(...).first()` / `.all()` / `.run()` / `.batch([...])`. Timestamps are Unix epoch seconds.
 - **Local dev on Guix System:** `workerd` is a prebuilt ELF needing `/lib64/ld-linux-x86-64.so.2`, which does not exist on Guix. Anything that spawns it (`wrangler dev`, `wrangler d1 execute --local`, `vitest`) must run inside an FHS container — see the Testing section of `AGENTS.md`.
+- **Never point local dev at real Mailgun.** `.dev.vars` holds a live key, and the login and report flows send to third parties. Stub it with `--var MAILGUN_API_BASE:http://127.0.0.1:8899/v3` and capture the multipart body locally; pair with Cloudflare's always-passing Turnstile test secret so forms submit without a browser. CLI `--var` overrides `.dev.vars`.

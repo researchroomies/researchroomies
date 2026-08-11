@@ -121,7 +121,7 @@ Routes under `/api/components/*` return raw HTML fragments (no `<!DOCTYPE>` wrap
 - `GET /api/components/tag-options` → `<option>` list for subject filters and the create-post picker
 - `GET /api/components/post/:id` → full post content + inquiry form. **No current caller** — kept only so an old `/post/:id` shell still sitting in a browser cache degrades to a working page instead of a dead fetch. It shares `getPostDetail()` and `renderPostDetail()` with `handlePostPage`, so the two cannot drift. Slated for deletion; see the backlog in CLAUDE.md.
 
-These responses should return `Content-Type: text/html` and never JSON.
+Return these with `fragmentResponse()` from `src/lib/response.ts`, which sets `Content-Type: text/html; charset=utf-8`. Never JSON, and never a hand-built `new Response`.
 
 ---
 
@@ -292,7 +292,9 @@ title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '')
 npm run build
 ```
 
-Must be run after any template change before deploying. The Worker serves `public/` as static assets — templates are not compiled at runtime. Note that `npm run deploy` does **not** build; run `npm run build` first or you will ship stale HTML.
+`npm run build` is `node scripts/gen-layout.mjs && eleventy` — it regenerates `templates/layouts/base.njk` from `src/lib/shell.mjs` before Eleventy runs.
+
+Must be run after any template change before previewing with `wrangler dev`, which serves the pre-built `public/` and does not compile templates at runtime. `npm run deploy` runs the build itself (`npm run build && wrangler deploy`), so a deploy cannot ship stale HTML.
 
 **Adding a page here can break a Worker route.** Cloudflare serves a matching static asset before invoking the Worker, so `templates/pages/foo.njk` (which builds to `public/foo/index.html`) will shadow a registered `GET /foo` handler. Either don't create the template, or add the path to `run_worker_first` in `wrangler.toml`.
 
@@ -401,6 +403,8 @@ Two rules follow from why it exists:
 - **The session TTL is defined once** (`SESSION_TTL_SECONDS`). The session cookie's `Max-Age` and the token's `exp` used to come from two independent 30-day constants in two files, agreeing by coincidence. `handleAuthCallback` now derives both from one local. If they ever diverge, users are silently logged out — never reintroduce a second constant.
 - **The origin is derived, not hardcoded.** `APP_ORIGIN` if set, otherwise `new URL(request.url).origin`. Callers with no request in hand (`sendReportEmail`) fall back to the production default, which is what those absolute links always were.
 
+### `RESTRICT_EDU_EMAILS`
+
 The gate lives in `isEmailAllowed()` (`src/lib/auth.ts`) and is applied in both `handleAuthStart` and `handleAuthCallback`. It fails open — any value other than the literal string `"true"`, including the var being absent, allows all addresses. Override locally with `npx wrangler dev --var RESTRICT_EDU_EMAILS:true`.
 
 Enabling it rejects international academic domains (`.ac.uk`, `.edu.au`) and locks out existing non-`.edu` users, not just new signups. See CLAUDE.md before flipping it.
@@ -411,11 +415,14 @@ Enabling it rejects international academic domains (`.ac.uk`, `.edu.au`) and loc
 
 ```bash
 npm run dev        # Start local Wrangler dev server (Workers + D1)
-npm run build      # Build Eleventy static pages into public/
-npm run deploy     # Build + deploy to Cloudflare (runs Eleventy then wrangler deploy)
-npm run test       # Run Vitest tests
+npm run build      # Generate base.njk from shell.mjs, then build Eleventy pages into public/
+npm run check      # build && vitest run && tsc --noEmit — the full gate, in the right order
+npm run deploy     # Build + deploy to Cloudflare (runs the build then wrangler deploy)
+npm run test       # Run Vitest in watch mode
 npm run cf-typegen # Regenerate Env type from wrangler.toml
 ```
+
+**Use `npm run check` after a clean checkout or before a deploy.** The order matters: `test/assets.test.ts` reads the Eleventy output in `public/`, so testing before building either fails loudly or tests a stale tree.
 
 **Important:** `npm run dev` serves the Worker but does NOT auto-rebuild Eleventy templates. If you change a `.njk` file, run `npm run build` separately, then restart `wrangler dev`.
 
@@ -504,9 +511,10 @@ Deleting a `.njk` file does not remove its already-built output from `public/`, 
 ### Adding a new HTMX component endpoint
 
 1. Add a handler in `src/routes/api.ts` that returns an HTML fragment (no `<!DOCTYPE>`)
-2. Return `Content-Type: text/html`
-3. Register `GET /api/components/yourcomponent` in `ROUTES` (`src/routes.ts`) and return it with `fragmentResponse()`
-4. In the template, use `hx-get="/api/components/yourcomponent" hx-trigger="load" hx-swap="..."` on the target element
+2. Return it with `fragmentResponse()` from `src/lib/response.ts`
+3. Choose `opts.cache` deliberately. It defaults to `'private'`, which is the safe answer for anything that varies by session — `nav-user` depends on it. Use `'public-long'` only for genuinely session-independent reference data such as the tag list
+4. Register `GET /api/components/yourcomponent` in `ROUTES` (`src/routes.ts`)
+5. In the template, use `hx-get="/api/components/yourcomponent" hx-trigger="load" hx-swap="..."` on the target element
 
 ### Building responses
 

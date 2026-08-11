@@ -1,17 +1,24 @@
 # Task 6 — Split `src/routes/api.ts`
 
 **Size:** Small once Tasks 1–3 have landed; large before
-**Depends on:** Tasks 1, 2 and 3 — **hard dependency**
+**Depends on:** Tasks 1 (✅ landed 2026-08-10), 2 and 3 — **hard dependency**
 **Risk:** Low if it stays a pure move
 
 **Do this last. It is a consequence of Tasks 1–3, not a substitute for them.**
+
+> **Still blocked.** Task 1 landing does not unblock this — Tasks 2 and 3 are
+> the ones that shrink the handlers, and splitting before them produces
+> ~300-line files with the same interface surface. Step 1 of Verification below
+> now reads `ROUTES` in `src/routes.ts`, which Task 1 created.
 
 ---
 
 ## Problem
 
-`src/routes/api.ts` is 1,199 lines — **43% of all TypeScript in `src/`** — and
-exports 14 handlers spanning six unrelated concerns:
+`src/routes/api.ts` was 1,199 lines at review and is **1,079** after Task 1 —
+**37% of all TypeScript in `src/`**, down from 43%, and still the largest file in
+the repo by a wide margin. It exports 14 handlers spanning six unrelated
+concerns:
 
 - conference pages (`handleConferencePage`, `handleFeaturedConferences`)
 - tag / subject browsing (`handleSubjectPage`)
@@ -27,10 +34,11 @@ It also contains five data-access functions, `generateSlug` /
 
 ## Why this is sequenced last
 
-Splitting a 1,199-line file changes nothing about depth if the handlers keep
+Splitting a 1,000-plus-line file changes nothing about depth if the handlers keep
 their current shape. Done first, it produces four ~300-line files with the same
-interface surface, the same inline SQL, and the same hand-built responses —
-motion without leverage.
+interface surface and the same inline SQL — motion without leverage. Task 1
+already removed the hand-built responses, and it moved the total by 120 lines;
+the remaining bulk is SQL and rendering, which is Task 3's subject.
 
 It also actively harms the review of Tasks 1–3, whose diffs would then land
 across files that had just moved, making it hard to tell a behaviour change from

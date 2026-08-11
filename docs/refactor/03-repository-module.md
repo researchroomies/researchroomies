@@ -1,10 +1,16 @@
 # Task 3 — Repository module
 
 **Size:** Large
-**Depends on:** Tasks 1 and 2 (soft — they land first the diff is far more
-readable, but neither blocks)
+**Depends on:** Tasks 1 (✅ landed 2026-08-10) and 2 (⬜ outstanding) — both
+soft. With them landed first the diff is far more readable, but neither blocks.
 **Risk:** Medium — this is the change most likely to alter behaviour silently.
 Do it query by query, not as one sweep.
+
+> **Re-measure before starting.** Task 1 rewrote response construction
+> throughout `api.ts`, `posts.ts` and `flags.ts`, so every line number in this
+> document has shifted and the call-site counts have moved: `DB.prepare()` is
+> now **27**, not 30. The four `as unknown as` casts are now at `api.ts:50`,
+> `:64`, `:79` and `:237`. The queries themselves were not touched.
 
 **This is the highest-leverage task in the backlog and the one that unblocks
 handler testing. Reserve it for whoever knows the data model best.**
@@ -13,8 +19,8 @@ handler testing. Reserve it for whoever knows the data model best.**
 
 ## Problem
 
-30 `DB.prepare()` call sites hold ~28 distinct SQL statements inline in HTTP
-handlers. Three consequences follow.
+27 `DB.prepare()` call sites (30 at review) hold ~28 distinct SQL statements
+inline in HTTP handlers. Three consequences follow.
 
 ### Row types are redeclared, not defined
 
@@ -23,7 +29,7 @@ A post's shape is spelled out six different ways: the `Post` interface,
 `handleComponentPost`, `handleMyPosts` and `handleSearch`. None is
 authoritative.
 
-Four `as unknown as` casts — `api.ts:45`, `:59`, `:74`, `:267` — defeat the type
+Four `as unknown as` casts — now `api.ts:50`, `:64`, `:79`, `:237` — defeat the type
 checker outright. The clearest example: `getAllConferences()` is typed
 `Promise<Conference[]>`, but its query is `SELECT id, name FROM conferences`. The
 returned objects are missing five declared fields, and TypeScript is perfectly
