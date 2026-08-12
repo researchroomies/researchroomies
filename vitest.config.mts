@@ -16,11 +16,13 @@ import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
  *   test/session-access.test.ts  session resolution goes through lib/guards.ts,
  *                              ownership is not re-checked by hand, and only
  *                              lib/turnstile.ts talks to siteverify
+ *   test/db-access.test.ts     SQL lives in src/db/, no cast launders a row
+ *                              type, and row shapes are declared once
  *
  * `vitest run` with no arguments runs BOTH projects. A guard test that is not in
  * the default run is not a guard, so do not narrow this to one project.
  */
-const NODE_ONLY = ['test/assets.test.ts', 'test/session-access.test.ts'];
+const NODE_ONLY = ['test/assets.test.ts', 'test/session-access.test.ts', 'test/db-access.test.ts'];
 export default defineConfig({
 	test: {
 		projects: [

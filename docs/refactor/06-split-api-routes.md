@@ -1,15 +1,19 @@
 # Task 6 — Split `src/routes/api.ts`
 
 **Size:** Small once Tasks 1–3 have landed; large before
-**Depends on:** Tasks 1 (✅ landed 2026-08-10), 2 and 3 — **hard dependency**
+**Depends on:** Tasks 1 (✅ 2026-08-10), 2 (✅ 2026-08-11) and 3 (✅ 2026-08-12) —
+**all satisfied**
 **Risk:** Low if it stays a pure move
 
 **Do this last. It is a consequence of Tasks 1–3, not a substitute for them.**
 
-> **Still blocked.** Task 1 landing does not unblock this — Tasks 2 and 3 are
-> the ones that shrink the handlers, and splitting before them produces
-> ~300-line files with the same interface surface. Step 1 of Verification below
-> now reads `ROUTES` in `src/routes.ts`, which Task 1 created.
+> **Unblocked as of 2026-08-12.** All three prerequisites have landed. `api.ts`
+> is **804 lines** (from 1,199 at review), and what remains is handlers and
+> rendering — the SQL moved to `src/db/` in Task 3, which is also where the
+> seams below now come from. Re-measure before starting: the line numbers and
+> the "1,079 lines" figure in Problem are pre-Task-3. `generateSlug` /
+> `generateUniqueSlug` and `escapeLike` no longer live in `api.ts` at all, so
+> those two bullets under "What moves where" are already done.
 
 ---
 

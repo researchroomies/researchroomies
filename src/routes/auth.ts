@@ -1,4 +1,5 @@
 import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isEmailAllowed } from '../lib/auth';
+import { upsertUserOnLogin } from '../db/users';
 import { sendMagicLink } from '../lib/mailgun';
 import { COOKIE_NAME, getSessionUser } from '../lib/session';
 import { verifyTurnstile } from '../lib/turnstile';
@@ -136,30 +137,11 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
             );
         }
 
-        // 2. Upsert user
-        const db = env.DB;
-        // Check if user exists
-        let user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(payload.email).first<{ id: number, email: string, created_at: number }>();
-
-        let userId: string;
-
+        // 2. Upsert user. Creating the account and recording the login are the
+        // same operation here — clicking a valid link is the only way an account
+        // comes into existence — so both live behind one call in src/db/users.ts.
         const now = Math.floor(Date.now() / 1000);
-
-        if (!user) {
-            // Create new user
-            const result = await db.prepare('INSERT INTO users (email, created_at, last_login_at) VALUES (?, ?, ?) RETURNING id')
-                .bind(payload.email, now, now)
-                .first<{ id: number }>();
-
-            if (!result) throw new Error("Failed to create user");
-            userId = result.id.toString();
-        } else {
-            // Update last login
-            await db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?')
-                .bind(now, user.id)
-                .run();
-            userId = user.id.toString();
-        }
+        const userId = (await upsertUserOnLogin(env, payload.email, now)).toString();
 
         // 3. Issue session token.
         // The token's `exp` and the cookie's `Max-Age` below are derived from

@@ -15,95 +15,37 @@ import {
   pageResponse,
 } from "../lib/response";
 import { parseRouteId } from "../lib/params";
-
-interface Conference {
-  id: number;
-  name: string;
-  slug: string;
-  location_address: string;
-  start_time: number;
-  stop_time: number;
-  description?: string;
-}
-
-interface Post {
-  id: number;
-  title: string;
-  description: string;
-  created_at: number;
-}
-
-interface Tag {
-  slug: string;
-  name: string;
-}
-
-async function getFeaturedConferences(env: Env): Promise<Conference[]> {
-  const stmt = env.DB.prepare(`
-    SELECT id, name, slug, location_address, start_time, stop_time
-    FROM conferences
-    WHERE is_featured = 1
-    ORDER BY created_at DESC
-    LIMIT 10
-  `);
-
-  const result = await stmt.all();
-  return result.results as unknown as Conference[];
-}
-
-async function getConferenceBySlug(
-  env: Env,
-  slug: string,
-): Promise<Conference | null> {
-  const stmt = env.DB.prepare(`
-    SELECT id, name, slug, location_address, start_time, stop_time, description
-    FROM conferences
-    WHERE slug = ?
-  `);
-
-  const result = await stmt.bind(slug).first();
-  return result as unknown as Conference | null;
-}
-
-async function getPostsByConferenceId(
-  env: Env,
-  conferenceId: number,
-): Promise<Post[]> {
-  const stmt = env.DB.prepare(`
-    SELECT id, title, description, created_at
-    FROM posts
-    WHERE conference_id = ?
-    ORDER BY created_at DESC
-  `);
-
-  const result = await stmt.bind(conferenceId).all();
-  return result.results as unknown as Post[];
-}
-
-async function getAllTags(env: Env): Promise<Tag[]> {
-  const result = await env.DB.prepare(
-    `SELECT slug, name FROM tags ORDER BY name ASC`,
-  ).all<Tag>();
-  return result.results ?? [];
-}
-
-async function getTagsForConference(
-  env: Env,
-  conferenceId: number,
-): Promise<Tag[]> {
-  const result = await env.DB.prepare(
-    `
-    SELECT tags.slug, tags.name
-    FROM conference_tags
-    JOIN tags ON conference_tags.tag_slug = tags.slug
-    WHERE conference_tags.conference_id = ?
-    ORDER BY tags.name ASC
-  `,
-  )
-    .bind(conferenceId)
-    .all<Tag>();
-  return result.results ?? [];
-}
+import {
+  createConference,
+  getConferenceBySlug,
+  listConferences,
+  listFeaturedConferences,
+  reserveSlug,
+} from "../db/conferences";
+import {
+  createPost,
+  getPostAuthorContact,
+  getPostWithConference,
+  listPostsForConference,
+  listPostsForUser,
+  searchPosts,
+  SEARCH_LIMIT,
+} from "../db/posts";
+import { recordMessage } from "../db/moderation";
+import {
+  getTag,
+  listConferencesForTag,
+  listTags,
+  listTagsForConference,
+  tagConference,
+} from "../db/tags";
+import type {
+  Conference,
+  ConferenceListing,
+  Post,
+  PostDetail,
+  Tag,
+} from "../db/types";
 
 function renderTagChips(tags: Tag[]): string {
   if (tags.length === 0) return "";
@@ -116,7 +58,7 @@ function renderTagChips(tags: Tag[]): string {
   return `<p class="conference-tags">${chips}</p>`;
 }
 
-function renderFeaturedConferences(conferences: Conference[]): string {
+function renderFeaturedConferences(conferences: ConferenceListing[]): string {
   if (conferences.length === 0) {
     return "<p>No featured conferences available at the moment.</p>";
   }
@@ -178,7 +120,7 @@ export async function handleFeaturedConferences(
   ctx: ExecutionContext,
 ): Promise<Response> {
   try {
-    const conferences = await getFeaturedConferences(env);
+    const conferences = await listFeaturedConferences(env);
     const html = renderFeaturedConferences(conferences);
 
     return fragmentResponse(html, { cache: "public-short" });
@@ -215,8 +157,8 @@ export async function handleConferencePage(
     }
 
     const [posts, tags] = await Promise.all([
-      getPostsByConferenceId(env, conference.id),
-      getTagsForConference(env, conference.id),
+      listPostsForConference(env, conference.id),
+      listTagsForConference(env, conference.id),
     ]);
     const content = renderConferencePage(conference, posts, tags);
 
@@ -225,17 +167,6 @@ export async function handleConferencePage(
     console.error("Error fetching conference:", error);
     return errorPage();
   }
-}
-
-async function getAllConferences(env: Env): Promise<Conference[]> {
-  const stmt = env.DB.prepare(`
-    SELECT id, name
-    FROM conferences
-    ORDER BY name ASC
-  `);
-
-  const result = await stmt.all();
-  return result.results as unknown as Conference[];
 }
 
 export async function handleComponentCreateFormAuth(
@@ -260,7 +191,7 @@ export async function handleComponentConferenceOptions(
   ctx: ExecutionContext,
 ): Promise<Response> {
   try {
-    const conferences = await getAllConferences(env);
+    const conferences = await listConferences(env);
     const optionsHtml = conferences
       .map(
         (conf) =>
@@ -287,7 +218,7 @@ export async function handleComponentNavSubjects(
   ctx: ExecutionContext,
 ): Promise<Response> {
   try {
-    const tags = await getAllTags(env);
+    const tags = await listTags(env);
     const html = tags
       .map(
         (tag) =>
@@ -313,7 +244,7 @@ export async function handleComponentTagOptions(
   const selected = url.searchParams.get("selected") || "";
 
   try {
-    const tags = await getAllTags(env);
+    const tags = await listTags(env);
     const blank = includeBlank ? '<option value="">Subject</option>' : "";
     const html =
       blank +
@@ -332,38 +263,6 @@ export async function handleComponentTagOptions(
       cache: "none",
     });
   }
-}
-
-function generateSlug(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
-}
-
-/**
- * Slugs address /conference/:slug, so a collision would make the newer
- * conference unreachable. Suffix until free; a UNIQUE index backstops this.
- */
-async function generateUniqueSlug(env: Env, name: string): Promise<string> {
-  const base = generateSlug(name) || "conference";
-  let slug = base;
-  let suffix = 2;
-
-  while (
-    await env.DB.prepare(`SELECT 1 FROM conferences WHERE slug = ?`)
-      .bind(slug)
-      .first()
-  ) {
-    slug = `${base}-${suffix}`;
-    suffix += 1;
-    if (suffix > 100) {
-      slug = `${base}-${Date.now()}`;
-      break;
-    }
-  }
-
-  return slug;
 }
 
 export async function handleCreatePost(
@@ -408,10 +307,7 @@ export async function handleCreatePost(
     // writes (conference insert, tag batch, post insert) with no transaction
     // around them. If the post insert fails, the conference survives as an
     // orphan and keeps its slug, so the user's retry gets "-2" appended.
-    // D1's batch() cannot fix this: the post insert needs the conference id
-    // that the first statement RETURNs, and batch() has no way to feed one
-    // statement's output into the next. A real fix needs either a stored
-    // procedure-shaped API or a cleanup pass over conferences with no posts.
+    // The reason D1 cannot fix this is recorded on src/db/conferences.ts.
     if (conferenceId === "new") {
       const newConfName = formData.get("new_conf_name") as string;
       const newConfStartStr = formData.get("new_conf_start") as string;
@@ -428,7 +324,7 @@ export async function handleCreatePost(
         });
       }
 
-      const slug = await generateUniqueSlug(env, newConfName);
+      const slug = await reserveSlug(env, newConfName);
       const startTime = Math.floor(new Date(newConfStartStr).getTime() / 1000);
       const stopTime = Math.floor(new Date(newConfEndStr).getTime() / 1000);
 
@@ -436,49 +332,25 @@ export async function handleCreatePost(
         return new Response("Invalid conference dates", { status: 400 });
       }
 
-      const result = await env.DB.prepare(
-        `
-        INSERT INTO conferences (user_id, name, slug, location_address, start_time, stop_time, created_at, is_featured)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-        RETURNING id
-      `,
-      )
-        .bind(
-          userId,
-          newConfName,
-          slug,
-          newConfLocation || null,
-          startTime,
-          stopTime,
-          now,
-        )
-        .first<{ id: number }>();
+      const newConferenceId = await createConference(env, {
+        userId,
+        name: newConfName,
+        slug,
+        locationAddress: newConfLocation || null,
+        startTime,
+        stopTime,
+        createdAt: now,
+      });
+      conferenceId = newConferenceId.toString();
 
-      if (!result) {
-        throw new Error("Failed to create conference");
-      }
-      conferenceId = result.id.toString();
-
-      // Subjects are conference-level. Only slugs already in `tags` are accepted,
-      // so the curated list stays curated.
+      // Subjects are conference-level. tagConference() drops any slug that is
+      // not already in `tags`, which is what keeps the curated list curated.
       const submittedTags = formData
         .getAll("conf_tags")
         .map((value) => String(value).trim())
         .filter(Boolean);
 
-      if (submittedTags.length > 0) {
-        const validTags = new Set((await getAllTags(env)).map((t) => t.slug));
-        const inserts = submittedTags
-          .filter((slug) => validTags.has(slug))
-          .map((slug) =>
-            env.DB.prepare(
-              `INSERT OR IGNORE INTO conference_tags (tag_slug, conference_id) VALUES (?, ?)`,
-            ).bind(slug, result.id),
-          );
-        if (inserts.length > 0) {
-          await env.DB.batch(inserts);
-        }
-      }
+      await tagConference(env, newConferenceId, submittedTags);
     }
 
     const parsedConferenceId = parseRouteId(conferenceId);
@@ -486,19 +358,13 @@ export async function handleCreatePost(
       return new Response("Invalid conference", { status: 400 });
     }
 
-    const result = await env.DB.prepare(
-      `
-      INSERT INTO posts (user_id, conference_id, title, description, created_at)
-      VALUES (?, ?, ?, ?, ?)
-      RETURNING id
-    `,
-    )
-      .bind(userId, parsedConferenceId, title, description, now)
-      .first<{ id: number }>();
-
-    if (!result) {
-      throw new Error("Failed to create post");
-    }
+    await createPost(env, {
+      userId,
+      conferenceId: parsedConferenceId,
+      title,
+      description,
+      createdAt: now,
+    });
 
     return Response.redirect(`${new URL(request.url).origin}/my-posts`, 303);
   } catch (err) {
@@ -541,25 +407,16 @@ export async function handleMessageSend(
       );
     }
 
-    const stmt = env.DB.prepare(`
-      SELECT u.email, p.title
-      FROM posts p
-      JOIN users u ON p.user_id = u.id
-      WHERE p.id = ?
-    `);
+    const recipient = await getPostAuthorContact(env, postId);
 
-    const result = await stmt
-      .bind(postId)
-      .first<{ email: string; title: string }>();
-
-    if (!result) {
+    if (!recipient) {
       return new Response("Post not found", { status: 404 });
     }
 
     const success = await sendInquiryEmail(
-      result.email,
+      recipient.email,
       user.email,
-      result.title,
+      recipient.title,
       content,
       env,
     );
@@ -569,20 +426,13 @@ export async function handleMessageSend(
     }
 
     // Keep a record of what was sent through the platform.
-    await env.DB.prepare(
-      `
-      INSERT INTO message (post_id, sender_email, recipient_email, content, timestamp)
-      VALUES (?, ?, ?, ?, ?)
-    `,
-    )
-      .bind(
-        postId,
-        user.email,
-        result.email,
-        content,
-        Math.floor(Date.now() / 1000),
-      )
-      .run();
+    await recordMessage(env, {
+      postId,
+      senderEmail: user.email,
+      recipientEmail: recipient.email,
+      content,
+      timestamp: Math.floor(Date.now() / 1000),
+    });
 
     return Response.redirect(
       `${new URL(request.url).origin}/post/${postId}?sent=1`,
@@ -592,31 +442,6 @@ export async function handleMessageSend(
     console.error("Error sending message:", error);
     return new Response("Internal Server Error", { status: 500 });
   }
-}
-
-interface PostDetail {
-  id: number;
-  title: string;
-  description: string;
-  user_id: number;
-  conference_id: number;
-  conference_name: string;
-  conference_slug: string;
-}
-
-async function getPostDetail(
-  env: Env,
-  id: number,
-): Promise<PostDetail | null> {
-  const stmt = env.DB.prepare(`
-    SELECT p.id, p.title, p.description, p.user_id, p.conference_id,
-           c.name as conference_name, c.slug as conference_slug
-    FROM posts p
-    JOIN conferences c ON p.conference_id = c.id
-    WHERE p.id = ?
-  `);
-
-  return await stmt.bind(id).first<PostDetail>();
 }
 
 function renderPostDetail(
@@ -691,7 +516,7 @@ export async function handlePostPage(
   }
 
   try {
-    const post = await getPostDetail(env, postId);
+    const post = await getPostWithConference(env, postId);
 
     if (!post) {
       return notFoundPage("Post");
@@ -740,7 +565,7 @@ export async function handleComponentPost(
   }
 
   try {
-    const post = await getPostDetail(env, postId);
+    const post = await getPostWithConference(env, postId);
 
     if (!post) {
       return fragmentResponse("<p>Post not found.</p>", {
@@ -795,34 +620,7 @@ export async function handleMyPosts(
   const user = guard.value;
 
   try {
-    const query = `
-      SELECT
-        posts.id,
-        posts.title,
-        posts.description,
-        posts.created_at,
-        conferences.name AS conference_name,
-        conferences.slug AS conference_slug,
-        conferences.start_time,
-        conferences.stop_time
-      FROM posts
-      JOIN conferences ON posts.conference_id = conferences.id
-      WHERE posts.user_id = ?
-      ORDER BY posts.created_at DESC
-    `;
-
-    const { results } = await env.DB.prepare(query)
-      .bind(sessionUserId(user))
-      .all<{
-        id: number;
-        title: string;
-        description: string;
-        created_at: number;
-        conference_name: string;
-        conference_slug: string;
-        start_time: number;
-        stop_time: number;
-      }>();
+    const results = await listPostsForUser(env, sessionUserId(user));
 
     let postsHtml = "";
     if (results.length === 0) {
@@ -862,9 +660,14 @@ export async function handleMyPosts(
   }
 }
 
-/** `%` and `_` are LIKE wildcards; a user typing them should match literally. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+/**
+ * A `<input type="date">` value as Unix seconds, or null if it is absent or
+ * unparseable. An unusable date drops its filter rather than failing the search.
+ */
+function dateParamToTimestamp(value: string): number | null {
+  if (!value) return null;
+  const seconds = Math.floor(new Date(value).getTime() / 1000);
+  return Number.isFinite(seconds) ? seconds : null;
 }
 
 export async function handleSearch(
@@ -876,78 +679,23 @@ export async function handleSearch(
   const q = url.searchParams.get("q")?.trim() || "";
   const conference = url.searchParams.get("conference")?.trim() || "";
   const tag = url.searchParams.get("tag")?.trim() || "";
+  // The raw strings are kept to echo back into the form inputs; the parsed
+  // timestamps are what the query filters on.
   const startParam = url.searchParams.get("start") || "";
   const endParam = url.searchParams.get("end") || "";
 
-  const conditions: string[] = [];
-  const bindings: (string | number)[] = [];
-
-  if (q) {
-    conditions.push(
-      `(posts.title LIKE ? ESCAPE '\\' OR posts.description LIKE ? ESCAPE '\\')`,
-    );
-    bindings.push(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`);
-  }
-  if (conference) {
-    conditions.push(`conferences.name LIKE ? ESCAPE '\\'`);
-    bindings.push(`%${escapeLike(conference)}%`);
-  }
-  if (tag) {
-    conditions.push(
-      `conferences.id IN (SELECT conference_id FROM conference_tags WHERE tag_slug = ?)`,
-    );
-    bindings.push(tag);
-  }
-  if (startParam) {
-    const startTs = Math.floor(new Date(startParam).getTime() / 1000);
-    if (Number.isFinite(startTs)) {
-      conditions.push("conferences.stop_time >= ?");
-      bindings.push(startTs);
-    }
-  }
-  if (endParam) {
-    const endTs = Math.floor(new Date(endParam).getTime() / 1000);
-    if (Number.isFinite(endTs)) {
-      conditions.push("conferences.start_time <= ?");
-      bindings.push(endTs);
-    }
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const searched = Boolean(q || conference || tag || startParam || endParam);
 
   let resultsHtml = "";
 
   try {
-    const sql = `
-      SELECT
-        posts.id,
-        posts.title,
-        posts.description,
-        conferences.name AS conference_name,
-        conferences.slug AS conference_slug,
-        conferences.location_address,
-        conferences.start_time,
-        conferences.stop_time
-      FROM posts
-      JOIN conferences ON posts.conference_id = conferences.id
-      ${where}
-      ORDER BY conferences.start_time ASC, posts.created_at DESC
-      LIMIT 50
-    `;
-
-    const stmt = env.DB.prepare(sql);
-    const bound = bindings.length > 0 ? stmt.bind(...bindings) : stmt;
-    const { results } = await bound.all<{
-      id: number;
-      title: string;
-      description: string;
-      conference_name: string;
-      conference_slug: string;
-      location_address: string;
-      start_time: number;
-      stop_time: number;
-    }>();
+    const results = await searchPosts(env, {
+      q,
+      conference,
+      tag,
+      overlapsFrom: dateParamToTimestamp(startParam),
+      overlapsUntil: dateParamToTimestamp(endParam),
+    });
 
     if (results.length === 0) {
       resultsHtml = searched
@@ -955,7 +703,7 @@ export async function handleSearch(
         : `<p>No posts yet. <a href="/create">Create the first one</a>.</p>`;
     } else {
       resultsHtml =
-        `<p class="search-count">${results.length} post${results.length === 1 ? "" : "s"}${results.length === 50 ? " (showing the first 50)" : ""}</p>` +
+        `<p class="search-count">${results.length} post${results.length === 1 ? "" : "s"}${results.length === SEARCH_LIMIT ? ` (showing the first ${SEARCH_LIMIT})` : ""}</p>` +
         results
           .map(
             (post) => `
@@ -1014,31 +762,13 @@ export async function handleSubjectPage(
     // Inside the try: this is a DB call like any other, and when it was above
     // the block a D1 failure here escaped the handler as an unhandled 500
     // while the identical failure one query later rendered an error page.
-    const tag = await env.DB.prepare(
-      `SELECT slug, name FROM tags WHERE slug = ?`,
-    )
-      .bind(slug)
-      .first<Tag>();
+    const tag = await getTag(env, slug);
 
     if (!tag) {
       return notFoundPage("Subject");
     }
 
-    const { results } = await env.DB.prepare(
-      `
-      SELECT conferences.id, conferences.name, conferences.slug,
-             conferences.location_address, conferences.start_time, conferences.stop_time,
-             COUNT(posts.id) AS post_count
-      FROM conferences
-      JOIN conference_tags ON conference_tags.conference_id = conferences.id
-      LEFT JOIN posts ON posts.conference_id = conferences.id
-      WHERE conference_tags.tag_slug = ?
-      GROUP BY conferences.id
-      ORDER BY conferences.start_time ASC
-    `,
-    )
-      .bind(slug)
-      .all<Conference & { post_count: number }>();
+    const results = await listConferencesForTag(env, slug);
 
     const listHtml =
       results.length > 0

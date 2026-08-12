@@ -4,12 +4,9 @@ import { escapeHtml } from "../lib/html";
 import { errorPage, notFoundPage, pageResponse } from "../lib/response";
 import { parseRouteId } from "../lib/params";
 import { requireUser } from "../lib/guards";
-
-interface ReportablePost {
-  id: number;
-  title: string;
-  conference_name: string;
-}
+import { getPost, getPostWithConference } from "../db/posts";
+import { recordFlag } from "../db/moderation";
+import type { PostDetail } from "../db/types";
 
 const REPORT_REASONS = [
   "Spam or advertising",
@@ -19,7 +16,7 @@ const REPORT_REASONS = [
   "Other",
 ];
 
-function renderReportForm(env: Env, post: ReportablePost): string {
+function renderReportForm(env: Env, post: PostDetail): string {
   const optionsHtml = REPORT_REASONS.map(
     (reason) => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`,
   ).join("");
@@ -69,16 +66,7 @@ export async function handleReportForm(
   }
 
   try {
-    const post = await env.DB.prepare(
-      `
-      SELECT p.id, p.title, c.name AS conference_name
-      FROM posts p
-      JOIN conferences c ON p.conference_id = c.id
-      WHERE p.id = ?
-    `,
-    )
-      .bind(parsedPostId)
-      .first<ReportablePost>();
+    const post = await getPostWithConference(env, parsedPostId);
 
     if (!post) {
       return notFoundPage("Post");
@@ -136,22 +124,20 @@ export async function handleReportSubmit(
       );
     }
 
-    const post = await env.DB.prepare(`SELECT id, title FROM posts WHERE id = ?`)
-      .bind(parsedPostId)
-      .first<{ id: number; title: string }>();
+    const post = await getPost(env, parsedPostId);
 
     if (!post) {
       return notFoundPage("Post");
     }
 
     const combinedReason = details ? `${reason}: ${details}` : reason;
-    const now = Math.floor(Date.now() / 1000);
 
-    await env.DB.prepare(
-      `INSERT INTO flags (post_id, reason, flagged_by, timestamp) VALUES (?, ?, ?, ?)`,
-    )
-      .bind(parsedPostId, combinedReason, user.email, now)
-      .run();
+    await recordFlag(env, {
+      postId: parsedPostId,
+      reason: combinedReason,
+      flaggedBy: user.email,
+      timestamp: Math.floor(Date.now() / 1000),
+    });
 
     // The DB row is the source of truth for moderation; email is a
     // best-effort notification and should never fail the report.

@@ -2,6 +2,7 @@ import { sessionUserId } from "../lib/session";
 import { escapeHtml } from "../lib/html";
 import { errorPage, pageResponse } from "../lib/response";
 import { requireOwnedPost } from "../lib/guards";
+import { deletePostAndFlags, updatePost } from "../db/posts";
 
 /**
  * Every handler here is "session → parse id → fetch post → compare user_id",
@@ -67,13 +68,9 @@ export async function handleEditPostSubmit(
       return new Response("Missing required fields", { status: 400 });
     }
 
-    // The user_id check here is defence in depth on top of requireOwnedPost() —
-    // an id can never be trusted from the form body.
-    await env.DB.prepare(
-      `UPDATE posts SET title = ?, description = ? WHERE id = ? AND user_id = ?`,
-    )
-      .bind(title, description, post.id, sessionUserId(user))
-      .run();
+    // updatePost() keeps the user_id in its WHERE as defence in depth on top of
+    // requireOwnedPost() — an id can never be trusted from the form body.
+    await updatePost(env, post.id, sessionUserId(user), { title, description });
 
     return Response.redirect(new URL(`/post/${post.id}`, request.url).href, 303);
   } catch (error) {
@@ -121,16 +118,10 @@ export async function handleDeletePostSubmit(
   const { user, post } = guard.value;
 
   try {
-    // flags reference the post and would otherwise dangle; message rows are
-    // deliberately left alone as the historical record of inquiries sent.
-    // The `AND user_id = ?` is defence in depth on top of requireOwnedPost().
-    await env.DB.batch([
-      env.DB.prepare(`DELETE FROM flags WHERE post_id = ?`).bind(post.id),
-      env.DB.prepare(`DELETE FROM posts WHERE id = ? AND user_id = ?`).bind(
-        post.id,
-        sessionUserId(user),
-      ),
-    ]);
+    // Flags reference the post and would otherwise dangle; message rows are
+    // deliberately left alone as the historical record of inquiries sent. Both
+    // rules, and the defence-in-depth user_id, live in deletePostAndFlags().
+    await deletePostAndFlags(env, post.id, sessionUserId(user));
 
     return Response.redirect(new URL("/my-posts", request.url).href, 303);
   } catch (error) {

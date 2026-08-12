@@ -41,6 +41,13 @@ researchroomies/
 │   │   ├── auth.ts           # Magic link login/logout/session
 │   │   ├── posts.ts          # Author-only post edit/delete
 │   │   └── flags.ts          # Post reporting
+│   ├── db/                   # THE only place SQL lives
+│   │   ├── types.ts          # Every row shape, defined exactly once
+│   │   ├── posts.ts          # Post reads/writes + the /search filter builder
+│   │   ├── conferences.ts    # Conference reads/writes + slug reservation
+│   │   ├── tags.ts           # Subjects; tagConference() enforces the curated list
+│   │   ├── users.ts          # upsertUserOnLogin()
+│   │   └── moderation.ts     # flags + message (both write-only)
 │   └── lib/
 │       ├── config.ts         # getConfig() – origin, TTLs, sitekey, Mailgun, admin email
 │       ├── auth.ts           # Token generation/verification (HMAC-SHA256), .edu gate
@@ -72,8 +79,12 @@ researchroomies/
 │   ├── params.test.ts              # parseRouteId()
 │   ├── config.test.ts              # getConfig() defaults, origin derivation, TTL agreement
 │   ├── guards.test.ts              # requireUser() × 3 modes × every anonymous case
+│   ├── search.test.ts              # /search filter matrix against a real D1
+│   ├── handlers.test.ts            # create/edit/delete/my-posts against a real D1
+│   ├── helpers/seed.ts             # Schema + fixtures for the handler tests
 │   ├── assets.test.ts              # Route-ownership guards (runs in node, not workerd)
-│   └── session-access.test.ts      # getSessionUser/ownership/siteverify greps (node)
+│   ├── session-access.test.ts      # getSessionUser/ownership/siteverify greps (node)
+│   └── db-access.test.ts           # SQL-stays-in-src/db + no-cast greps (node)
 ├── wrangler.toml             # Cloudflare config (D1 binding, routes, assets)
 ├── vitest.config.mts         # Vitest + @cloudflare/vitest-pool-workers
 ├── eleventy.config.js        # Eleventy config
@@ -123,7 +134,7 @@ Routes under `/api/components/*` return raw HTML fragments (no `<!DOCTYPE>` wrap
 - `GET /api/components/create-form-auth` → email field for create form (or redirect if unauthenticated)
 - `GET /api/components/conference-options` → `<option>` list for conference dropdown
 - `GET /api/components/tag-options` → `<option>` list for subject filters and the create-post picker
-- `GET /api/components/post/:id` → full post content + inquiry form. **No current caller** — kept only so an old `/post/:id` shell still sitting in a browser cache degrades to a working page instead of a dead fetch. It shares `getPostDetail()` and `renderPostDetail()` with `handlePostPage`, so the two cannot drift. Slated for deletion; see the backlog in CLAUDE.md.
+- `GET /api/components/post/:id` → full post content + inquiry form. **No current caller** — kept only so an old `/post/:id` shell still sitting in a browser cache degrades to a working page instead of a dead fetch. It shares `getPostWithConference()` and `renderPostDetail()` with `handlePostPage`, so the two cannot drift. Slated for deletion; see the backlog in CLAUDE.md.
 
 Return these with `fragmentResponse()` from `src/lib/response.ts`, which sets `Content-Type: text/html; charset=utf-8`. Never JSON, and never a hand-built `new Response`.
 
@@ -248,25 +259,38 @@ The callback is reached by clicking a link in an email, so every failure path re
 
 **Engine:** Cloudflare D1 (SQLite dialect)  
 **Binding:** `env.DB`  
-**Schema:** `db/schema.sql`
+**Schema:** `db/schema.sql`  
+**All queries live in `src/db/`** — see below.
 
-### D1 query patterns
+### SQL lives in `src/db/`, nowhere else
+
+Handlers call a named function; they never touch `env.DB`. `test/db-access.test.ts` fails the build if `DB.prepare` appears outside `src/db/`.
 
 ```typescript
-// Single row
-const row = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first<{ id: number }>();
+import { getPostWithConference, searchPosts } from '../db/posts';
 
-// Multiple rows
-const { results } = await env.DB.prepare('SELECT * FROM posts WHERE conference_id = ?').bind(id).all();
-
-// Insert with RETURNING
-const result = await env.DB.prepare('INSERT INTO ... RETURNING id').bind(...).first<{ id: number }>();
-
-// Update/delete
-await env.DB.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').bind(now, id).run();
+const post = await getPostWithConference(env, id);          // PostDetail | null
+const results = await searchPosts(env, { q, tag });         // PostWithConference[]
 ```
 
-Always use `.bind()` — never string-interpolate values into queries.
+Adding a query means adding a function to the module that owns the table, and its row type to `src/db/types.ts`:
+
+```typescript
+// src/db/posts.ts
+export async function getPost(env: Env, id: number): Promise<Post | null> {
+	return await env.DB.prepare(`SELECT id, title, description, created_at FROM posts WHERE id = ?`)
+		.bind(id)
+		.first<Post>();   // the generic, never `as unknown as`
+}
+```
+
+Rules that hold inside `src/db/`:
+
+- **Always `.bind()`** — never string-interpolate a value into a query.
+- **Type reads with D1's generics** (`.first<T>()` / `.all<T>()`). Four `as unknown as` casts used to launder mismatched row types; `getAllConferences()` was typed `Promise<Conference[]>` over a `SELECT id, name` and nothing complained. `test/db-access.test.ts` bans the cast outright.
+- **A type describes exactly the columns its query selects.** That is why `ConferenceSummary` (`id, name`) is separate from `Conference` — having the narrow type is what makes the wide lie unwritable.
+- **Reads return `[]` / `null`, not `undefined`**, so handlers need no defensive checks.
+- Writes take an input object (`NewPost`, `NewFlag`, …) rather than positional arguments, so a column added to an INSERT cannot silently shift the bindings.
 
 **Parse route ids with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`.** `parseInt("12abc", 10)` returns `12` and `Number.isFinite()` accepts it, so a malformed URL silently resolves to an unrelated row instead of 404ing. `parseRouteId` requires the whole string to be digits and rejects zero, negatives, and values past the safe-integer range, returning `null` for anything it will not vouch for.
 
@@ -305,11 +329,7 @@ All timestamps are stored as **Unix epoch seconds (INTEGER)**. Convert to/from J
 
 ### Slug generation
 
-Slugs are generated from conference names by `generateSlug()` in `api.ts`:
-```typescript
-title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '')
-```
-`generateUniqueSlug()` wraps this and suffixes collisions (`-2`, `-3`, …), backed by a `UNIQUE` index on `conferences.slug`. Always create conferences through it — a duplicate slug makes the newer conference unreachable at `/conference/:slug`.
+`reserveSlug()` in `src/db/conferences.ts` turns a conference name into a slug nothing else is using — lowercase, non-alphanumerics to `-`, then `-2`, `-3`, … until one is free, backed by a `UNIQUE` index on `conferences.slug`. Always create conferences through it: a duplicate slug makes the newer conference unreachable at `/conference/:slug`.
 
 ---
 
@@ -489,14 +509,51 @@ The host must include the port; `--local-upstream localhost` yields `http://loca
 | `test/shell.test.ts` | The generated `base.njk` against `renderFullPage()` — head, footer and whole document byte for byte, plus the title/year/meta contracts |
 | `test/assets.test.ts` | Every route in `ROUTES` is unshadowed by `public/` and covered by `run_worker_first` |
 | `test/config.test.ts` | `getConfig()` defaults (each one pins a literal that used to be hardcoded), origin derivation and `APP_ORIGIN` override, `magicLinkUrl()`, Mailgun From resolution, and that the session token's `exp - iat` equals `SESSION_TTL_SECONDS` |
+| `test/guards.test.ts` | `requireUser()` across three modes × every way a session can be absent, and the exact failure shape of each mode |
+| `test/session-access.test.ts` | Greps: no `getSessionUser` outside guards, no hand-written ownership comparison, no `siteverify` outside `lib/turnstile.ts` |
+| `test/db-access.test.ts` | Greps: no `DB.prepare`/`DB.batch`/SQL outside `src/db/`, no `as unknown as` anywhere in `src/`, no row shape declared outside `src/db/types.ts` |
+| `test/search.test.ts` | `/search` against a real D1 — each filter alone, the combinations, `escapeLike`, ordering, and the 50-result cap |
+| `test/handlers.test.ts` | `handleCreatePost`, `handleMyPosts`, `handleEditPostSubmit`, `handleDeletePostSubmit` against a real D1 — including that a refusal writes nothing and a stranger's edit changes no row |
+
+### Writing a handler test
+
+`@cloudflare/vitest-pool-workers` provides a real D1 in process, so handler
+tests run against real SQL rather than a fake `env.DB` — which is the point, as
+a fake returns whatever rows the test hands it and so cannot fail on a bad
+binding or a filter that matches everything.
+
+`test/helpers/seed.ts` has the fixtures: `resetDatabase()` (applies
+`db/schema.sql`, then empties every table but `tags`), `seedUser` /
+`seedConference` / `seedPost`, `sessionCookie(userId)`, `testRequest(path, …)`
+and `expectTurnstile(success)`.
+
+```typescript
+beforeEach(async () => {
+	await resetDatabase();
+	fetchMock.activate();
+	fetchMock.disableNetConnect();   // .dev.vars holds live credentials
+});
+
+const userId = await seedUser('prof@university.edu');
+const response = await handleMyPosts(
+	testRequest('/my-posts', { cookie: await sessionCookie(userId) }),
+	testEnv,
+	createExecutionContext(),
+);
+```
+
+`testEnv` overrides `AUTH_HMAC_SECRET` and `TURNSTILE_SECRET_KEY` so no test
+depends on `.dev.vars`, and any handler that verifies Turnstile needs an
+`expectTurnstile()` interceptor or the call fails loudly instead of reaching
+Cloudflare.
 
 **Two vitest projects.** `vitest.config.mts` declares a `workers` project (runs in
-workerd via `@cloudflare/vitest-pool-workers`) and a `node` project for
-`test/assets.test.ts`, which needs `node:fs` to read `public/` and `wrangler.toml`.
-`vitest run` with no arguments runs both — do not narrow it. Those guard tests
-require a built `public/`; they throw a pointed error rather than skipping if it
-is missing, so run `npm run check` (build, then test, then `tsc`) after a clean
-checkout.
+workerd via `@cloudflare/vitest-pool-workers`) and a `node` project for the three
+grep-based guard files, which need `node:fs` to read source, `public/` and
+`wrangler.toml`. `vitest run` with no arguments runs both — do not narrow it.
+Those guard tests require a built `public/`; they throw a pointed error rather
+than skipping if it is missing, so run `npm run check` (build, then test, then
+`tsc`) after a clean checkout.
 
 To add tests for new routes, use the Cloudflare vitest pool which provides a real Workers-like runtime with D1 bindings.
 
@@ -528,10 +585,11 @@ guix shell --container --emulate-fhs --network \
 2. Do not invent a fourth answer to "not logged in". If none of the three modes fits, that is a change to `GuardMode`, made once, with the reason written down there
 3. Parse ids with `parseRouteId()`; treat `null` as 404, never as "try anyway"
 4. For anything mutating a post, use `requireOwnedPost()` — it re-loads the row and compares ownership, so an id from the form body is never trusted
-5. Verify Turnstile on anything a bot could hammer
-6. Escape every interpolated value with `escapeHtml()`
-7. Wrap the handler body in try/catch and return a rendered error page — a throw that escapes becomes the runtime's bare 500 with no page. Log the real error with `console.error`; **never** put `err.message` in the response, it leaks D1 table and constraint names
-8. Register the route in `ROUTES` (`src/routes.ts`), without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`
+5. Reach the database through `src/db/`, never `env.DB` — add a function to the module that owns the table, and its row type to `src/db/types.ts`
+6. Verify Turnstile on anything a bot could hammer
+7. Escape every interpolated value with `escapeHtml()`
+8. Wrap the handler body in try/catch and return a rendered error page — a throw that escapes becomes the runtime's bare 500 with no page. Log the real error with `console.error`; **never** put `err.message` in the response, it leaks D1 table and constraint names
+9. Register the route in `ROUTES` (`src/routes.ts`), without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`
 
 ### Adding a new Eleventy page
 

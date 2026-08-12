@@ -33,27 +33,31 @@ are no handler tests.
 
 "At review" is the working tree on 2026-08-10 when this backlog was written,
 after the Round 2 hardening pass described in `CLAUDE.md`. "Now" is the same
-measurement after Tasks 1, 4 and 5 landed on `main` that day and Task 2 landed
-on 2026-08-11.
+measurement after Tasks 1, 4 and 5 landed on `main` that day, Task 2 on
+2026-08-11 and Task 3 on 2026-08-12.
 
 | Metric | At review | Now | Closed by |
 |---|---|---|---|
-| `src/routes/api.ts` | 1,199 lines | **1,074** | partially Tasks 1–2; Task 6 is the real fix |
+| `src/routes/api.ts` | 1,199 lines | **804** | partially Tasks 1–3; Task 6 is the real fix |
 | `renderFullPage()` call sites | 29 | **1** (`pageResponse`) | Task 1 |
-| `try {` blocks in `src/` | 24 | 24 | Task 3 territory |
+| `try {` blocks in `src/` | 24 | 24 | Task 6 territory |
 | `"text/html"` vs `"text/html; charset=utf-8"` | 29 / 12 | **0 / 1**, inside `response.ts` | Task 1 |
 | `getSessionUser()` call sites | 15 | **3** (2 in `guards.ts`, 1 in `handleAuthMe`) | Task 2 |
-| `DB.prepare()` call sites | 30 | 24 | **Task 3** |
+| `DB.prepare()` call sites | 30 | **0** outside `src/db/` (25 inside) | Task 3 |
 | Turnstile sitekey literals | 4 | **0** in `src/`+`templates/`, 1 in `wrangler.toml` | Task 5 |
 | `SESSION_TTL` definitions | 2 | **1** | Task 5 |
 | Hand-built HTML `new Response` | 41 | **0** | Task 1 |
 | Inline ownership comparisons | 4 | **0** (`requireOwnedPost`) | Task 2 |
-| `src/routes/posts.ts` | 258 lines | **140** | Task 2 |
-| Handler tests | 0 | 0 | **Task 3** |
-| Test count | 21 across 3 files | **150 across 8 files** | Tasks 1, 2, 4, 5 |
+| `src/routes/posts.ts` | 258 lines | **131** | Tasks 2–3 |
+| Handler tests | 0 | **42** (`search`, `handlers`) | Task 3 |
+| Test count | 21 across 3 files | **299 across 11 files** | Tasks 1–5 |
+| `as unknown as` in `src/` | 4 | **0** | Task 3 |
+| Row shape definitions per entity | 6+ for a post | **1**, in `src/db/types.ts` | Task 3 |
 
-`src/` is ~2,900 lines of TypeScript. `api.ts` alone is 37% of it — down from
-43%, but still the largest file by a wide margin.
+`src/` is ~3,280 lines of TypeScript. `api.ts` alone is 25% of it — down from
+43% — but still the largest file by a wide margin. The total grew because Task 3
+moved SQL into named, documented functions rather than deleting it; what shrank
+is how much of it any one handler has to hold.
 
 The 33 remaining `new Response(...)` sites are bare-text 4xx/405s, redirects and
 the two JSON endpoints in `auth.ts`. Task 2 converted the auth failures among
@@ -69,16 +73,18 @@ Sites are as measured at review. ✅ marks duplication that has since been close
 
 | Repeated thing | Sites | Consequence | Status |
 |---|---|---|---|
-| `env.DB.prepare(...)` with inline SQL | 30 | Row shapes redeclared 6+ ways. No single definition of "a Post". | open → Task 3 |
-| `getSessionUser()` + failure branch | 15 | Three inconsistent failure modes for the same condition. | open → Task 2 |
+| `env.DB.prepare(...)` with inline SQL | 30 | Row shapes redeclared 6+ ways. No single definition of "a Post". | ✅ Task 3 |
+| `getSessionUser()` + failure branch | 15 | Three inconsistent failure modes for the same condition. | ✅ Task 2 |
 | Hand-built `new Response(html, {headers})` | 41 | Charset written two ways; cache policy chosen ad hoc. | ✅ Task 1 |
 | `try { ... } catch` per handler | 24 | Error response shape re-decided each time. | partly ✅ — the *response* is now `errorPage()`; the blocks remain |
 | Turnstile sitekey `0x4AAA…` | 4 (2 TS, 2 njk) | Rotating the widget means 4 edits across two languages. | ✅ Task 5 |
 | `SESSION_TTL = 30 days` | 2 files | Cookie `Max-Age` and token `exp` independently defined. | ✅ Task 5 |
 | `escapeHtml` | 2 (`html.ts`, `mailgun.ts`) | `escapeHtmlForEmail` is a byte-identical copy. | open — see below |
 
-Near-identical `SELECT posts JOIN conferences` appears in `handleComponentPost`,
-`handleEditPostForm` and `handleReportForm` with slightly different column lists.
+✅ The near-identical `SELECT posts JOIN conferences` that appeared in
+`handleComponentPost`, `handleEditPostForm` and `handleReportForm` with slightly
+different column lists is now one function, `getPostWithConference()` in
+`src/db/posts.ts`, serving all three plus `requireOwnedPost()`.
 
 **On `escapeHtml`:** Task 4 moved the canonical copy into `src/lib/shell.mjs`
 (the shell needs escaping and cannot import TypeScript) and `html.ts` now
@@ -127,9 +133,9 @@ silently. Three of the four are now guarded by a test rather than a paragraph.
 ## Testability
 
 At review there were 190 lines of tests, all against pure functions: `Router`,
-token crypto, `isEmailAllowed`, `parseRouteId`. Tasks 1, 2, 4 and 5 took the
-suite from **21 tests across 3 files to 150 across 8**, adding four kinds of test
-the repo did not have:
+token crypto, `isEmailAllowed`, `parseRouteId`. Tasks 1–5 took the suite from
+**21 tests across 3 files to 299 across 11**, adding five kinds of test the repo
+did not have:
 
 - **Structural guards** (`assets.test.ts`) — reads `ROUTES` and asserts no built
   asset shadows a route and `run_worker_first` covers every one. Runs in plain
@@ -148,18 +154,24 @@ the repo did not have:
 - **Config defaults as assertions** (`config.test.ts`) — each default pins the
   literal it replaced, so "invisible in production" is checkable, plus the
   cookie `Max-Age` ⟷ token `exp - iat` agreement.
+- **Handler tests against a real D1** (`search.test.ts`, `handlers.test.ts`, added
+  by Task 3) — a Request in, a Response and a database state out. The `/search`
+  filter matrix lives here because a binding-order mistake produces wrong rows
+  rather than an error, and only real SQL can catch that.
 
-**There are still no handler tests.** That is not a discipline gap — it is a
-consequence of the shape. A handler takes `(Request, Env, ExecutionContext)` and
-reaches straight into `env.DB` with raw SQL, so exercising one requires a real
-database and a real HTTP round trip. Task 2's failure-mode table was verified
-that way — by hand against `wrangler dev` with a seeded local D1 and minted
-session cookies — and those assertions, like the 72 from the earlier review
-round, do not survive as tests.
+**Handler tests exist as of Task 3.** They did not before, and that was not a
+discipline gap but a consequence of the shape: a handler reached straight into
+`env.DB` with raw SQL, so exercising one meant standing up a database by hand.
+Task 2's failure-mode table was verified that way — against `wrangler dev` with
+a seeded local D1 and minted session cookies — and those assertions, like the 72
+from the earlier review round, did not survive as tests. The equivalent
+assertions written after Task 3 do.
 
-`@cloudflare/vitest-pool-workers` is configured and provides a real D1 in
-process, and nothing uses it. [Task 3](03-repository-module.md) is what makes
-handler tests possible without it.
+✅ `@cloudflare/vitest-pool-workers` provides a real D1 in process, and
+[Task 3](03-repository-module.md) put it to use: `test/search.test.ts` and
+`test/handlers.test.ts` drive handlers against real SQL, with fixtures in
+`test/helpers/seed.ts`. Those assertions now survive as tests rather than as a
+paragraph describing what someone once checked by hand.
 
 **Two vitest projects now.** `vitest.config.mts` declares a `workers` project and
 a `node` project; `npx vitest run` runs both. Anything added that needs `node:fs`
@@ -185,15 +197,11 @@ globals, doc sections — with no semantic collisions.
 ## Remaining order
 
 ```
-Task 3 (repository) ── 1 and 2 both satisfied; ready to start
-        │
-Task 6 (split api.ts) ── hard dep on 3
+Task 6 (split api.ts) ── hard dep on 3, now satisfied; ready to start
 ```
 
-What is left is a chain, not a fan-out: 3 → 6 must go in order, so there is no
-parallelism to exploit the way there was for 1/4/5. Task 3 is the one worth
-reserving for whoever knows the data model best — it is the only remaining task
-where a silent behaviour change is likely.
+Task 6 is all that is left, and it is a pure move: the seams it splits `api.ts`
+along follow the `src/db/` modules Task 3 created rather than being arbitrary.
 
 ---
 

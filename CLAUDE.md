@@ -13,6 +13,7 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 - `src/routes/auth.ts` – Magic link login/logout/session
 - `src/routes/posts.ts` – Author-only post edit/delete
 - `src/routes/flags.ts` – Post reporting
+- `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `users`, `moderation`
 - `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`
 - `templates/pages/` – Eleventy (Nunjucks) page templates
 - `templates/layouts/base.njk` – **generated** from `shell.mjs`; do not edit
@@ -20,11 +21,11 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 
 ---
 
-## Current State — updated 2026-08-11
+## Current State — updated 2026-08-12
 
-Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **Refactor tasks 1, 2, 4 and 5 have since landed** (see `docs/refactor/`); tasks 3 and 6 remain.
+Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **Refactor tasks 1, 2, 3, 4 and 5 have landed** (see `docs/refactor/`); only task 6 remains.
 
-Suite is **150 tests across 8 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Suite is **299 tests across 11 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Trailing-slash 404 on every Worker route — fixed 2026-08-10
 
@@ -177,6 +178,66 @@ one at random.
 
 ---
 
+### Refactor Task 3 — repository module, 2026-08-12
+
+`src/db/` is now the only place a SQL statement lives: 27 `DB.prepare()` call
+sites holding ~28 statements moved out of the handlers into six modules by
+table. `routes/api.ts` went 1074 → 804 lines. **The handler tests are the
+payoff** — before this there were zero, because exercising a handler meant
+standing up a database by hand.
+
+- **One type per row shape, in `src/db/types.ts`.** A post used to be spelled
+  six ways — the `Post` interface, `PostForEdit`, `PostForDelete`, `PostOwner`,
+  and anonymous inline types in three handlers — with none authoritative. The
+  rule that keeps it that way: *a type describes exactly the columns its query
+  selects*. `ConferenceSummary` (`id, name`) is deliberately a separate type
+  from `Conference`; having the narrow type is what makes the wide lie
+  unwritable.
+- **All four `as unknown as` casts are gone**, replaced by D1's `.first<T>()` /
+  `.all<T>()` generics. The clearest one: `getAllConferences()` was typed
+  `Promise<Conference[]>` over a `SELECT id, name`, so five declared fields did
+  not exist on the objects it returned and TypeScript was content.
+- **`getPostWithConference()` replaced three near-identical
+  `posts JOIN conferences` queries** with different column lists, in
+  `handleComponentPost`, `handleEditPostForm`/`requireOwnedPost` and
+  `handleReportForm`. `guards.ts` now holds no SQL at all, and `OwnedPost` is an
+  alias of `PostDetail` rather than a fourth hand-written shape.
+- **`searchPosts()` owns the dynamic WHERE builder.** It was 35 lines inline in
+  `handleSearch` and the most bug-prone block in the codebase: SQL fragments
+  pushed into one array, bindings into another, where a mis-paired push shifts
+  every later `?` onto the wrong value and returns wrong rows rather than an
+  error. Clauses are now `{ sql, bindings }` objects, so that class of bug is
+  unwritable rather than merely tested for. `LIMIT` is the exported
+  `SEARCH_LIMIT`, which the "(showing the first 50)" copy reads, so the sentence
+  cannot disagree with the query.
+- **`tagConference()` owns the curated-list validation** that was inline in
+  `handleCreatePost`, and `reserveSlug()` owns slug generation and collision
+  suffixing. The non-atomic create is *recorded, not fixed* — the reason D1's
+  `batch()` cannot help is in the `src/db/conferences.ts` module doc.
+- **Two deliberate widenings, both unobservable.** `/search` now also selects
+  `posts.created_at` and `/my-posts` also selects `location_address`, so both
+  share one honest `PostWithConference` type instead of two near-identical
+  anonymous ones. Neither renderer uses the added field. Likewise the ownership
+  and report-form queries now select the full `PostDetail`.
+- **`test/db-access.test.ts`** holds the new invariants as greps: no
+  `DB.prepare` / `DB.batch` / SQL outside `src/db/`, no `as unknown as` anywhere
+  in `src/`, no row shape declared outside `types.ts`, and every read carrying a
+  generic. `test/session-access.test.ts`'s defence-in-depth grep moved with the
+  SQL to `src/db/posts.ts` and gained a companion asserting the handlers still
+  pass `sessionUserId(user)` into it — the clause only defends anything if the
+  value bound to it comes from the session.
+
+**Verification.** A temporary parity harness ran every pre-refactor statement
+(copied out of git HEAD) and its replacement against the same seeded D1 and
+compared results — including all 540 combinations of the five `/search` filters.
+All identical; the harness was then deleted rather than left to duplicate every
+query forever. The permanent cover is `test/search.test.ts` (24 tests) and
+`test/handlers.test.ts` (18). Both were checked against mutation: reversing the
+binding order fails four combination tests, and making `escapeLike` a no-op
+fails both wildcard tests.
+
+---
+
 ## Open decisions
 
 ### `.edu` email restriction — built as a switch, currently OFF
@@ -195,7 +256,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 
 ## Backlog
 
-- **Refactor tasks 3 and 6 remain** — see `docs/refactor/`. Still a chain: 3 (repository module) → 6 (split `api.ts`), so there is no parallelism to exploit. Task 3 is the highest-leverage one and the only thing standing between the repo and handler tests.
+- **Refactor task 6 remains** — see `docs/refactor/`. It was blocked on task 3, which has landed, so the seams it splits `api.ts` along now follow the `src/db/` modules rather than being arbitrary.
 - **The custom 404 page is probably never served.** `not_found_handling = "404-page"` looks for `public/404.html`, but Eleventy emits `public/404/index.html`. Found while verifying Task 4; not yet confirmed against production.
 - **Worker pages are inconsistent about `description` / `canonicalUrl`.** `renderShell()` omits the meta and canonical tags when a handler passes nothing, which is the case for `/search`, `/my-posts` and the edit/delete/report pages. Task 4 fixed the shell and the nine static pages; this is the remaining half, and it is per-handler content rather than shell shape.
 - **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
@@ -204,7 +265,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users.
 - **The homepage's featured-conference list is still HTMX-loaded.** `templates/pages/index.njk` fetches `/api/featured-conferences` on load, so crawlers see the homepage copy but none of the conference links. Smaller than the `/post/:id` case just fixed — the page has real content of its own and the same conferences are reachable from `/search` and `/subject/:slug` — but it is the last place where indexable links exist only after JS runs. Fixing it means either server-rendering `/` (it is currently a static asset) or accepting the gap.
 - **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `getPostDetail()` / `renderPostDetail()` with `handlePostPage`, so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler, its entry in `ROUTES` (`src/routes.ts`), and the row in the AGENTS.md route table. `test/assets.test.ts` reads `ROUTES`, so nothing else needs updating.
-- **Post creation is not atomic (known limit).** Creating a post against a *new* conference is three separate writes: conference insert, tag batch, post insert. If the post insert fails, the conference survives as an orphan and holds its slug, so the user's retry gets `-2` appended to it. `batch()` cannot fix this — the post insert needs the id the conference insert `RETURNING`s, and `batch()` has no way to pipe one statement's output into the next. A real fix needs either a different API shape or a periodic sweep of conferences with zero posts. Noted in a comment at the top of the `conferenceId === "new"` branch in `handleCreatePost`.
+- **Post creation is not atomic (known limit).** Creating a post against a *new* conference is three separate writes: conference insert, tag batch, post insert. If the post insert fails, the conference survives as an orphan and holds its slug, so the user's retry gets `-2` appended to it. `batch()` cannot fix this — the post insert needs the id the conference insert `RETURNING`s, and `batch()` has no way to pipe one statement's output into the next. A real fix needs either a different API shape or a periodic sweep of conferences with zero posts. Recorded in the `src/db/conferences.ts` module doc, with a pointer from the `conferenceId === "new"` branch in `handleCreatePost`.
 - **Moderation review.** `flags` rows are written and emailed to `admin@researchroomies.com`, but there is no in-app review UI. That needs an admin concept (`users.is_admin` or similar), which the schema does not have.
 - **Structured locations.** `countries` / `states` / `cities` and `conferences.city_id` remain intentionally dormant; city/state are free text. Revisit if location-based search is wanted.
 - **Editing conference details.** Posts are editable; the conference a post belongs to is not.
@@ -224,12 +285,13 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **One response path: `src/lib/response.ts`.** Never hand-build `new Response(html, { headers })`. `pageResponse()` for Worker pages, `fragmentResponse()` for `/api/components/*`, and `notFoundPage()` / `forbiddenPage()` / `errorPage()` for failures. `opts.cache` is a closed union defaulting to `'private'`; `errorPage()` takes no argument so an exception message cannot reach the client. Bare-text 4xx/405s, redirects and the two JSON endpoints in `auth.ts` are still plain `new Response` on purpose — converting them would change the wire format, and their shapes are Task 2's subject.
 - **Routes live in `src/routes.ts`, not `index.ts`.** Add a `{ method, path, handler }` entry to `ROUTES`, without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`. `test/assets.test.ts` reads `ROUTES` and fails if you forget either.
 - **Deployment literals live in `src/lib/config.ts`.** `getConfig(env, request?)` is the only place an origin, TTL, sitekey, Mailgun setting or admin address is defined. The session TTL in particular has exactly one definition feeding both the cookie `Max-Age` and the token `exp` — they were two independent constants agreeing by coincidence, and divergence is a silent logout.
+- **One data path: `src/db/`.** Handlers never touch `env.DB`; they call a named function from the module that owns the table, and every row shape is defined once in `src/db/types.ts`. `test/db-access.test.ts` fails the build on a `DB.prepare` outside `src/db/`, on any `as unknown as` in `src/`, or on a row shape declared next to a query. Type reads with D1's `.first<T>()` / `.all<T>()` generics — the casts they replace are what let `getAllConferences()` claim to return full conferences from a `SELECT id, name`.
 - **Route ids:** parse with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`. `parseInt("12abc", 10)` is `12` and passes `Number.isFinite()`, which silently turns a malformed URL into a lookup of a different row.
 - **Handler order:** check the session *before* querying anything keyed on a user-supplied id. Querying first leaks row existence through the status code to callers who are not allowed to see it. The guards do this by construction.
 - **HTMX pattern:** `/api/components/*` return raw HTML fragments, not JSON.
 - **Session auth: one entry point, `src/lib/guards.ts`.** Cookie-based signed tokens, no DB lookup per request. `requireUser(request, env, mode)` for anything that needs a user, `optionalUser()` where anonymous is fine, `requireOwnedPost()` for the post edit/delete family. Never call `getSessionUser()` from a handler — `test/session-access.test.ts` fails the build if you do. The three failure modes (`'page'` 302, `'api'` 401, `'htmx'` 200 + `HX-Redirect`) are documented on the `GuardMode` type and nowhere else; that folklore living in ten handlers instead is what the task fixed. Never trust an id from a form body — `requireOwnedPost()` re-checks ownership against the DB row.
 - **Escaping:** Worker HTML is string-concatenated. Every interpolated DB or user value must pass through `escapeHtml()`.
 - **Turnstile:** always verify with `verifyTurnstile()`; a missing token is a failure, never a skip.
-- **Database:** D1 (SQLite). `env.DB.prepare(...).bind(...).first()` / `.all()` / `.run()` / `.batch([...])`. Timestamps are Unix epoch seconds.
+- **Database:** D1 (SQLite), reached only through `src/db/` (above). Inside those modules: `env.DB.prepare(...).bind(...).first<T>()` / `.all<T>()` / `.run()` / `.batch([...])`, always `.bind()`, never string interpolation. Timestamps are Unix epoch seconds.
 - **Local dev on Guix System:** `workerd` is a prebuilt ELF needing `/lib64/ld-linux-x86-64.so.2`, which does not exist on Guix. Anything that spawns it (`wrangler dev`, `wrangler d1 execute --local`, `vitest`) must run inside an FHS container — see the Testing section of `AGENTS.md`.
 - **Never point local dev at real Mailgun.** `.dev.vars` holds a live key, and the login and report flows send to third parties. Stub it with `--var MAILGUN_API_BASE:http://127.0.0.1:8899/v3` and capture the multipart body locally; pair with Cloudflare's always-passing Turnstile test secret so forms submit without a browser. CLI `--var` overrides `.dev.vars`.

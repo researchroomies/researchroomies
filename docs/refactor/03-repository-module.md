@@ -1,7 +1,19 @@
 # Task 3 — Repository module
 
+> ## ✅ Landed 2026-08-12
+>
+> `src/db/` holds every SQL statement: `types.ts`, `posts.ts`, `conferences.ts`,
+> `tags.ts`, `users.ts`, `moderation.ts`. `routes/api.ts` went 1074 → 804 lines
+> and `lib/guards.ts` now contains no SQL at all.
+>
+> All five acceptance criteria are met — see the checklist at the bottom. The
+> interface below was implemented close to as proposed; the deviations, all
+> deliberate, are recorded in **Deviations from the plan** at the end.
+>
+> Written up in CLAUDE.md under "Refactor Task 3". Task 6 is now unblocked.
+
 **Size:** Large
-**Depends on:** Tasks 1 (✅ landed 2026-08-10) and 2 (⬜ outstanding) — both
+**Depends on:** Tasks 1 (✅ landed 2026-08-10) and 2 (✅ landed 2026-08-11) — both
 soft. With them landed first the diff is far more readable, but neither blocks.
 **Risk:** Medium — this is the change most likely to alter behaviour silently.
 Do it query by query, not as one sweep.
@@ -167,17 +179,82 @@ export async function recordMessage(env: Env, input: NewMessage): Promise<void>;
 
 ## Acceptance criteria
 
-- [ ] No `DB.prepare` anywhere outside `src/db/`.
-- [ ] Zero `as unknown as` in `src/`.
-- [ ] Every row shape has exactly one type definition in `src/db/types.ts`.
-- [ ] **At least four handler tests** written against a fake `env.DB`. Suggested:
-      `handleSearch`, `handleMyPosts`, `handleCreatePost`,
-      `handleEditPostSubmit`. **These are the payoff** — without them the task
-      delivered file movement rather than depth, and should not be considered
-      done.
-- [ ] Deletion test as a sanity check: if removing `src/db/` would *not* scatter
-      complexity back across 11 handlers, the split is too thin and the modules
-      are pass-throughs.
+- [x] No `DB.prepare` anywhere outside `src/db/`. Enforced by
+      `test/db-access.test.ts`, which also bans `DB.batch` and any bare SQL
+      keyword outside those modules.
+- [x] Zero `as unknown as` in `src/`. Also enforced there, along with "every read
+      names its row type via a D1 generic" — the one exception being
+      `reserveSlug()`'s `SELECT 1` existence probe, which discards the row.
+- [x] Every row shape has exactly one type definition in `src/db/types.ts`. The
+      grep for it looks for column-shaped field names inside any interface
+      declared elsewhere in `src/`.
+- [x] **At least four handler tests.** 42 of them: `test/search.test.ts` (24) and
+      `test/handlers.test.ts` (18), covering `handleSearch`, `handleMyPosts`,
+      `handleCreatePost`, `handleEditPostSubmit` and `handleDeletePostSubmit`.
+      Written against the **real** in-process D1 rather than a fake — see
+      Deviations.
+- [x] Deletion test: `src/db/` is not a pass-through. Removing it would scatter
+      the `/search` clause builder and `escapeLike`, slug generation and
+      collision suffixing, the curated-tag validation, the flags-cascade rule on
+      delete, the create-or-update branch on login, and one shared
+      `posts JOIN conferences` back across the handlers — plus re-duplicate every
+      row type. The thinnest modules are `users.ts` (one function, but it hides a
+      branch) and `moderation.ts` (two inserts, grouped because both tables are
+      write-only); both are noted as candidates to fold elsewhere if they do not
+      grow.
+
+---
+
+## Deviations from the plan
+
+- **Handler tests run against a real D1, not a fake `env.DB`.**
+  `@cloudflare/vitest-pool-workers` provides one in process, and the risk this
+  task actually carries is a *SQL* mistake — a binding on the wrong `?`, a filter
+  that matches everything. A fake returns whatever rows the test hands it and so
+  cannot fail on any of those. Both suites were mutation-checked to confirm they
+  bite: reversing the binding order fails four combination tests, and making
+  `escapeLike` a no-op fails both wildcard tests.
+
+- **`SearchFilters` takes parsed timestamps, not date strings.** `overlapsFrom` /
+  `overlapsUntil` rather than `start` / `end`, named for the comparison they
+  make, since the query-parameter names read as the opposite of the columns they
+  filter on. Parsing `<input type="date">` values stays in the handler, which
+  also needs the raw strings to echo back into the form.
+
+- **The clause builder returns `{ sql, bindings }` pairs.** The plan asked
+  `searchPosts` to own the builder; keeping each fragment with its own bindings
+  additionally makes the mis-pairing bug structurally impossible rather than
+  merely relocated.
+
+- **Two column lists were widened so one type could be honest.** `/search` also
+  selects `posts.created_at` and `/my-posts` also selects `location_address`, so
+  both share `PostWithConference`; the ownership and report-form queries now
+  select the full `PostDetail`. Neither renderer reads the added fields, and a
+  parity harness confirmed identical output.
+
+- **`getAllTags` became `listTags` + `getTag`**, and `listPostsForConference` was
+  added — neither was in the proposed interface, both are one query each that the
+  conference and subject pages needed.
+
+- **`OwnedPost` survives as an alias of `PostDetail`** rather than being deleted,
+  so `requireOwnedPost()`'s signature and the Task 2 documentation around it
+  still read correctly.
+
+---
+
+## Verification performed
+
+Step 1 of the plan below called for capturing `wrangler dev` responses before the
+change and re-checking against them. What was done instead is stronger and does
+not depend on a hand-driven browser: a temporary parity harness ran **every**
+pre-refactor statement (copied verbatim out of git HEAD) and its replacement
+against the same seeded D1, comparing results row for row — including all **540**
+combinations of the five `/search` filters, and the awkward values (`%`, `_`, an
+unparseable date, a tag no conference carries). All identical.
+
+The harness was deleted once green: keeping it would mean maintaining a second
+copy of every query forever, which is the duplication this task removed. The
+permanent replacement is `test/search.test.ts` and `test/handlers.test.ts`.
 
 ---
 
