@@ -34,13 +34,14 @@ are no handler tests.
 "At review" is the working tree on 2026-08-10 when this backlog was written,
 after the Round 2 hardening pass described in `CLAUDE.md`. "Now" is the same
 measurement after Tasks 1, 4 and 5 landed on `main` that day, Task 2 on
-2026-08-11 and Task 3 on 2026-08-12.
+2026-08-11 and Tasks 3 and 6 on 2026-08-12.
 
 | Metric | At review | Now | Closed by |
 |---|---|---|---|
-| `src/routes/api.ts` | 1,199 lines | **804** | partially Tasks 1–3; Task 6 is the real fix |
+| `src/routes/api.ts` | 1,199 lines | **deleted** | Tasks 1–3 shrank it to 804; Task 6 split it into 7 modules |
+| Largest file in `src/routes/` | 1,199 lines | **303** (`posts.ts`) | Task 6 |
 | `renderFullPage()` call sites | 29 | **1** (`pageResponse`) | Task 1 |
-| `try {` blocks in `src/` | 24 | 24 | Task 6 territory |
+| `try {` blocks in `src/` | 24 | 24 | still open — see below |
 | `"text/html"` vs `"text/html; charset=utf-8"` | 29 / 12 | **0 / 1**, inside `response.ts` | Task 1 |
 | `getSessionUser()` call sites | 15 | **3** (2 in `guards.ts`, 1 in `handleAuthMe`) | Task 2 |
 | `DB.prepare()` call sites | 30 | **0** outside `src/db/` (25 inside) | Task 3 |
@@ -48,16 +49,22 @@ measurement after Tasks 1, 4 and 5 landed on `main` that day, Task 2 on
 | `SESSION_TTL` definitions | 2 | **1** | Task 5 |
 | Hand-built HTML `new Response` | 41 | **0** | Task 1 |
 | Inline ownership comparisons | 4 | **0** (`requireOwnedPost`) | Task 2 |
-| `src/routes/posts.ts` | 258 lines | **131** | Tasks 2–3 |
+| `src/routes/posts.ts` | 258 lines | **303** | shrank to 131 by Tasks 2–3, then absorbed create + my-posts in Task 6 |
 | Handler tests | 0 | **42** (`search`, `handlers`) | Task 3 |
-| Test count | 21 across 3 files | **299 across 11 files** | Tasks 1–5 |
+| Test count | 21 across 3 files | **373 across 12 files** | Tasks 1–6 |
 | `as unknown as` in `src/` | 4 | **0** | Task 3 |
 | Row shape definitions per entity | 6+ for a post | **1**, in `src/db/types.ts` | Task 3 |
 
-`src/` is ~3,280 lines of TypeScript. `api.ts` alone is 25% of it — down from
-43% — but still the largest file by a wide margin. The total grew because Task 3
-moved SQL into named, documented functions rather than deleting it; what shrank
-is how much of it any one handler has to hold.
+`src/` is ~3,350 lines of TypeScript, and no single file is now more than 9% of
+it. The total grew across the backlog because Tasks 3 and 6 moved code into
+named, documented modules rather than deleting it; what shrank is how much any
+one file has to hold — the largest went from 1,199 lines to 303.
+
+The 24 `try {` blocks are unchanged. Handler-level error handling was never in
+scope for any of the six tasks: `errorPage()` (Task 1) standardised what a
+failure *renders*, and the guards (Task 2) removed the auth branches, but each
+handler still catches its own D1 errors. That is the one structural theme this
+backlog leaves untouched.
 
 The 33 remaining `new Response(...)` sites are bare-text 4xx/405s, redirects and
 the two JSON endpoints in `auth.ts`. Task 2 converted the auth failures among
@@ -185,23 +192,35 @@ belongs in the node project — do not narrow the default run to one of them.
 |---|---|---|---|---|
 | 1 | [Response module + route-ownership guard tests](01-response-module-and-route-guards.md) | Medium | — | ✅ landed 2026-08-10 |
 | 2 | [Auth and ownership guards](02-auth-and-ownership-guards.md) | Medium | 1 | ✅ landed 2026-08-11 |
-| 3 | [Repository module](03-repository-module.md) | Large | 1, 2 (soft) | ⬜ ready — both satisfied |
+| 3 | [Repository module](03-repository-module.md) | Large | 1, 2 (soft) | ✅ landed 2026-08-12 |
 | 4 | [Collapse the two page shells](04-single-page-shell.md) | Small–medium | — | ✅ landed 2026-08-10 |
 | 5 | [Configuration module](05-config-module.md) | Small | — | ✅ landed 2026-08-10 |
-| 6 | [Split `api.ts`](06-split-api-routes.md) | Small after 1–3 | 1, 2, 3 (hard) | ⬜ blocked on 3 |
+| 6 | [Split `api.ts`](06-split-api-routes.md) | Small after 1–3 | 1, 2, 3 (hard) | ✅ landed 2026-08-12 |
 
 Tasks 1, 4 and 5 were run in parallel by three agents in separate git worktrees
 and merged in that order. All conflicts were unions — import lists, Eleventy
 globals, doc sections — with no semantic collisions.
 
-## Remaining order
+## Status: closed
 
-```
-Task 6 (split api.ts) ── hard dep on 3, now satisfied; ready to start
-```
+All six tasks have landed. Task 6 was the pure move it was scoped as — all 23
+functions byte-identical in their new homes, `ROUTES` unchanged — and it
+confirmed the sequencing argument: it was worth deferring precisely because
+Tasks 1 and 3 are what turned an arbitrary file-size split into one that follows
+the `src/db/` modules.
 
-Task 6 is all that is left, and it is a pure move: the seams it splits `api.ts`
-along follow the `src/db/` modules Task 3 created rather than being arbitrary.
+What each task left as a permanent guard, rather than as prose that drifts:
+
+| Test | Invariant |
+|---|---|
+| `test/assets.test.ts` | No build output shadows a route; `run_worker_first` covers every route |
+| `test/session-access.test.ts` | Session resolution, ownership and siteverify each have one home |
+| `test/db-access.test.ts` | SQL stays in `src/db/`; no cast launders a row type |
+| `test/route-modules.test.ts` | Route modules do not import each other, none regrows into `api.ts`, every exported handler is registered |
+
+Remaining known issues are tracked in the CLAUDE.md backlog. They are product
+and operational questions — production tag drift, the `www` binding, conference
+editing, moderation review — not structural ones.
 
 ---
 

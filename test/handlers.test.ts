@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createExecutionContext, fetchMock } from 'cloudflare:test';
-import { handleCreatePost, handleMyPosts } from '../src/routes/api';
-import { handleDeletePostSubmit, handleEditPostSubmit } from '../src/routes/posts';
+import {
+	handleCreatePost,
+	handleDeletePostSubmit,
+	handleEditPostSubmit,
+	handleMyPosts,
+} from '../src/routes/posts';
 import { getPost, getPostWithConference } from '../src/db/posts';
 import { getConferenceBySlug } from '../src/db/conferences';
 import { listTagsForConference } from '../src/db/tags';

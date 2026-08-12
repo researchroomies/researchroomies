@@ -1,22 +1,25 @@
 import { Router, type Handler } from './lib/router';
+import { handleFeaturedConferences, handleConferencePage } from './routes/conferences';
+import { handleSubjectPage } from './routes/subjects';
+import { handleSearch } from './routes/search';
 import {
-	handleFeaturedConferences,
-	handleConferencePage,
 	handleComponentCreateFormAuth,
 	handleComponentConferenceOptions,
 	handleComponentNavSubjects,
 	handleComponentTagOptions,
-	handleCreatePost,
-	handlePostPage,
-	handleComponentPost,
 	handleComponentNavUser,
-	handleMessageSend,
-	handleMyPosts,
-	handleSearch,
-	handleSubjectPage,
-} from './routes/api';
+} from './routes/components';
+import { handlePostPage, handleComponentPost } from './routes/post-detail';
+import { handleMessageSend } from './routes/messages';
 import { handleAuthStart, handleAuthCallback, handleAuthLogout, handleAuthMe } from './routes/auth';
-import { handleEditPostForm, handleEditPostSubmit, handleDeletePostConfirm, handleDeletePostSubmit } from './routes/posts';
+import {
+	handleCreatePost,
+	handleMyPosts,
+	handleEditPostForm,
+	handleEditPostSubmit,
+	handleDeletePostConfirm,
+	handleDeletePostSubmit,
+} from './routes/posts';
 import { handleReportForm, handleReportSubmit } from './routes/flags';
 
 export interface RouteDefinition {

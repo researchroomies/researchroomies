@@ -1,5 +1,21 @@
 # Task 6 — Split `src/routes/api.ts`
 
+> ## ✅ Landed 2026-08-12
+>
+> `src/routes/api.ts` is **deleted**. Its 804 lines are now seven modules by
+> concern, the largest of which is `posts.ts` at 303 lines. All four acceptance
+> criteria are met — see the checklist at the bottom.
+>
+> It is a **pure move**: all 23 functions across the old `api.ts` and `posts.ts`
+> are byte-identical in their new homes, and the `ROUTES` array in
+> `src/routes.ts` is unchanged (only its import block moved). See
+> **Verification** for how that was established.
+>
+> Two deviations from the proposed split, both forced by the acceptance
+> criteria themselves, are recorded in **Deviations from the plan**.
+>
+> Written up in CLAUDE.md under "Refactor Task 6". This closes `docs/refactor/`.
+
 **Size:** Small once Tasks 1–3 have landed; large before
 **Depends on:** Tasks 1 (✅ 2026-08-10), 2 (✅ 2026-08-11) and 3 (✅ 2026-08-12) —
 **all satisfied**
@@ -7,21 +23,13 @@
 
 **Do this last. It is a consequence of Tasks 1–3, not a substitute for them.**
 
-> **Unblocked as of 2026-08-12.** All three prerequisites have landed. `api.ts`
-> is **804 lines** (from 1,199 at review), and what remains is handlers and
-> rendering — the SQL moved to `src/db/` in Task 3, which is also where the
-> seams below now come from. Re-measure before starting: the line numbers and
-> the "1,079 lines" figure in Problem are pre-Task-3. `generateSlug` /
-> `generateUniqueSlug` and `escapeLike` no longer live in `api.ts` at all, so
-> those two bullets under "What moves where" are already done.
-
 ---
 
 ## Problem
 
-`src/routes/api.ts` was 1,199 lines at review and is **1,079** after Task 1 —
-**37% of all TypeScript in `src/`**, down from 43%, and still the largest file in
-the repo by a wide margin. It exports 14 handlers spanning six unrelated
+`src/routes/api.ts` was 1,199 lines at review, 1,079 after Task 1 and **804**
+after Task 3 — still the largest file in the repo by a wide margin, and 25% of
+all TypeScript in `src/`. It exported 14 handlers spanning six unrelated
 concerns:
 
 - conference pages (`handleConferencePage`, `handleFeaturedConferences`)
@@ -31,76 +39,111 @@ concerns:
 - inquiry messaging (`handleMessageSend`)
 - search (`handleSearch`)
 
-It also contains five data-access functions, `generateSlug` /
-`generateUniqueSlug`, and `escapeLike`.
+---
+
+## Why this was sequenced last
+
+Splitting a 1,000-plus-line file changes nothing about depth if the handlers
+keep their current shape. Done first, it would have produced four ~300-line
+files with the same interface surface and the same inline SQL — motion without
+leverage. Task 1 removed the hand-built responses; Task 3 removed the SQL. What
+was left by the time this ran was guard → repository call → `pageResponse(...)`,
+and the seams stopped being arbitrary: they follow the `src/db/` modules.
+
+It would also have actively harmed the review of Tasks 1–3, whose diffs would
+have landed across files that had just moved, making a behaviour change hard to
+tell from a relocation.
 
 ---
 
-## Why this is sequenced last
+## The split as it landed
 
-Splitting a 1,000-plus-line file changes nothing about depth if the handlers keep
-their current shape. Done first, it produces four ~300-line files with the same
-interface surface and the same inline SQL — motion without leverage. Task 1
-already removed the hand-built responses, and it moved the total by 120 lines;
-the remaining bulk is SQL and rendering, which is Task 3's subject.
+| File | Lines | Contents |
+|---|---|---|
+| `routes/posts.ts` | 303 | `handleCreatePost`, `handleMyPosts`, and the four edit/delete handlers already there |
+| `routes/post-detail.ts` | 172 | `handlePostPage`, `handleComponentPost`, `renderPostDetail` |
+| `routes/conferences.ts` | 146 | `handleConferencePage`, `handleFeaturedConferences`, and their three render helpers |
+| `routes/components.ts` | 130 | five `/api/components/*` fragment handlers |
+| `routes/search.ts` | 102 | `handleSearch`, `dateParamToTimestamp` |
+| `routes/messages.ts` | 85 | `handleMessageSend` |
+| `routes/subjects.ts` | 63 | `handleSubjectPage` |
 
-It also actively harms the review of Tasks 1–3, whose diffs would then land
-across files that had just moved, making it hard to tell a behaviour change from
-a relocation.
+`routes/auth.ts` (194) and `routes/flags.ts` (170) were not touched.
 
-After Tasks 1–3, each handler reduces to roughly *guard → repository call →
-`pageResponse(...)`*. `api.ts` should land near 400 lines on its own, and the
-seams stop being arbitrary — they follow the `src/db/` modules that already
-exist by then.
+The render helpers stayed private to the module that uses them, as planned. No
+shared `render.ts` was created — that would have recreated `api.ts` at a smaller
+scale, and the no-cross-import rule below is what makes the temptation visible.
 
 ---
 
-## Proposed split
+## Deviations from the plan
 
-Revisit this after Tasks 1–3; the natural lines may have moved.
+Both come from the same collision: the proposed table put
+`handleComponentPost` in `components.ts` and `handlePostPage` in `posts.ts`, but
+those two handlers **share `renderPostDetail()`**. Honouring that table would
+have forced either a route-to-route import or a shared render grab bag, each
+banned by an acceptance criterion.
 
-| File | Contents |
-|---|---|
-| `routes/conferences.ts` | `handleConferencePage`, `handleFeaturedConferences` |
-| `routes/subjects.ts` | `handleSubjectPage` |
-| `routes/search.ts` | `handleSearch` |
-| `routes/components.ts` | the six `/api/components/*` fragment handlers |
-| `routes/posts.ts` | absorbs `handleCreatePost` and `handlePostPage` — they belong with edit / delete |
-| `routes/messages.ts` | `handleMessageSend` |
+1. **`post-detail.ts` exists; it was not in the proposed table.** `/post/:id`
+   and `/api/components/post/:id` are one rendering with two envelopes, so they
+   live together and `renderPostDetail()` stays private. This also makes the
+   backlog item "delete the component route once the cache window has passed" a
+   single-file change.
+2. **`posts.ts` absorbed `handleCreatePost` and `handleMyPosts` but not
+   `handlePostPage`.** The seam that fell out is *authoring* (needs a session,
+   acts on your own posts) versus *reading* (renders for anonymous viewers).
+   Putting all of it in one file would also have pushed `posts.ts` past 440
+   lines, breaking the ~300 criterion.
 
-Helpers relocate rather than move sideways:
-
-- `generateSlug` / `generateUniqueSlug` → `src/db/conferences.ts` as
-  `reserveSlug` (Task 3)
-- `escapeLike` → inside the `searchPosts` filter builder in `src/db/posts.ts`
-  (Task 3)
-- `renderTagChips`, `renderFeaturedConferences`, `renderConferencePage` → keep
-  them private to whichever route module uses them; do not create a shared
-  `render.ts` grab bag, which would just recreate the problem at a smaller scale
+`handleMyPosts` had no destination in the proposed table at all; it went to
+`posts.ts` on the authoring/reading seam above.
 
 ---
 
 ## Acceptance criteria
 
-- [ ] No file in `src/routes/` exceeds ~300 lines.
-- [ ] Every route file imports from `src/lib/` and `src/db/` only. **No route
-      file imports another route file** — if one needs to, the shared thing
-      belongs in `lib/` or `db/`.
-- [ ] `src/routes.ts` (created in Task 1) remains the only place that knows the
-      full route list.
-- [ ] **No behaviour change.** This should be a pure move.
+- [x] No file in `src/routes/` exceeds ~300 lines. Largest is `posts.ts` at 303;
+      `test/route-modules.test.ts` enforces a 320-line bound.
+- [x] Every route file imports from `src/lib/` and `src/db/` only. **No route
+      file imports another route file** — enforced by test, not prose.
+- [x] `src/routes.ts` remains the only place that knows the full route list. Its
+      `ROUTES` array is byte-identical; only the import block changed.
+- [x] **No behaviour change.** Pure move, verified below.
 
 ---
 
 ## Verification
 
-Because this is a pure move, verification is a diff rather than a test:
+The plan called for diffing `wrangler dev` responses before and after. What was
+done instead is strictly stronger for a pure move, because it compares the code
+rather than a sample of its output:
 
-1. With `wrangler dev` running, capture responses for every route in
-   `src/routes.ts` before the change.
-2. Capture them again after.
-3. They should be byte-identical apart from any timestamp in the footer.
+1. **Every function is byte-identical.** A script extracted all 23 top-level
+   functions from the pre-change `api.ts` and `posts.ts` and from the seven
+   post-change modules, and compared them by exact text. All 23 matched, each
+   landing in exactly one destination, with no function invented and none lost.
+2. **The route table is unchanged.** `git diff src/routes.ts` touches only the
+   import block. Since handler names are unaltered (1), every path → handler
+   binding is provably the same.
+3. **The suite passes**, including the handler and search tests that run against
+   a real D1: **373 tests across 12 files**, up from 299 across 11. `npm run
+   build` and `tsc --noEmit` are clean.
 
-Resist the urge to fix anything mid-split. If you find a defect while moving
-code, note it and open a separate change — a bug fix hidden inside a 1,200-line
-file move is unreviewable.
+(1) and (2) together leave no room for a response to differ, which is why the
+live diff was not also run — it could only have sampled what was already proven.
+The harness for (1) was deleted rather than kept; it has nothing to say about
+any future change.
+
+**The new guard test was checked against mutation**, as the earlier tasks'
+were. Adding a sibling import to `subjects.ts` fails criterion A; padding a
+module past the bound fails B; deleting a `ROUTES` row for a still-exported
+handler fails C.
+
+---
+
+## What this leaves
+
+`docs/refactor/` is closed — all six tasks have landed. The remaining known
+issues are in the CLAUDE.md backlog and are product or operational questions
+(production tag drift, `www` binding, conference editing, moderation review),
+not structural ones.

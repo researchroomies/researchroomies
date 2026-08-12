@@ -54,7 +54,7 @@ function code(file: string): string {
 
 it('finds the source files it is supposed to be checking', () => {
 	// A guard test that silently matches nothing is worse than no test.
-	expect(SOURCES).toContain('src/routes/api.ts');
+	expect(SOURCES).toContain('src/routes/posts.ts');
 	expect(DB_MODULES).toContain('src/db/posts.ts');
 	expect(DB_MODULES.length).toBeGreaterThanOrEqual(5);
 	expect(OUTSIDE_DB.length).toBeGreaterThan(10);

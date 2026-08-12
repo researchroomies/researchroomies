@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createExecutionContext } from 'cloudflare:test';
-import { handleSearch } from '../src/routes/api';
+import { handleSearch } from '../src/routes/search';
 import { SEARCH_LIMIT } from '../src/db/posts';
 import { resetDatabase, seedConference, seedPost, seedUser, testEnv, testRequest, ts } from './helpers/seed';
 import { tagConference } from '../src/db/tags';

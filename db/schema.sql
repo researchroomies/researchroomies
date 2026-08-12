@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS message (
 );
 
 -- Conference slugs address /conference/:slug, so collisions make a conference
--- unreachable. generateUniqueSlug() in src/routes/api.ts suffixes duplicates;
+-- unreachable. reserveSlug() in src/db/conferences.ts suffixes duplicates;
 -- this index is the backstop. Safe to re-run on an existing database.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_conferences_slug ON conferences(slug);
 

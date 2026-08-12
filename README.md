@@ -162,11 +162,16 @@ npx wrangler secret put TURNSTILE_SECRET_KEY
 │   │   ├── session.ts      # Session cookie read/write, getSessionUser()
 │   │   ├── shell.mjs       # renderShell() – the one page chrome, generates base.njk
 │   │   └── turnstile.ts    # Server-side CAPTCHA verification + widget markup
-│   ├── routes/
-│   │   ├── api.ts          # Page renders and API handlers
+│   ├── routes/             # One module per concern; none imports another
+│   │   ├── components.ts   # /api/components/* HTMX fragments
+│   │   ├── conferences.ts  # Conference page + featured-list fragment
+│   │   ├── search.ts       # /search
+│   │   ├── subjects.ts     # /subject/:slug
+│   │   ├── post-detail.ts  # Reading a post: /post/:id + its fragment twin
+│   │   ├── posts.ts        # Authoring a post: create, my-posts, edit, delete
+│   │   ├── messages.ts     # Inquiry send
 │   │   ├── auth.ts         # Magic link login, session, logout
-│   │   ├── flags.ts        # Post reporting
-│   │   └── posts.ts        # Author-only post edit/delete
+│   │   └── flags.ts        # Post reporting
 │   ├── routes.ts           # ROUTES table – the single declaration of Worker-owned paths
 │   └── index.ts            # Worker entry point: dispatch, trailing slashes, asset fallthrough
 ├── scripts/

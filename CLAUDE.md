@@ -9,10 +9,16 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 **Key files:**
 - `src/index.ts` – Worker entry point: fetch handler, trailing-slash redirect, asset fallthrough. ~39 lines, no route list
 - `src/routes.ts` – the `ROUTES` table + `createRouter()`; the single declaration of what the Worker owns
-- `src/routes/api.ts` – Page renders + API handlers
-- `src/routes/auth.ts` – Magic link login/logout/session
-- `src/routes/posts.ts` – Author-only post edit/delete
-- `src/routes/flags.ts` – Post reporting
+- `src/routes/` – one module per concern, none importing another:
+  - `conferences.ts` – `/conference/:slug` + the featured-list fragment
+  - `subjects.ts` – `/subject/:slug`
+  - `search.ts` – `/search`
+  - `components.ts` – the `/api/components/*` HTMX fragments
+  - `post-detail.ts` – reading a post: `/post/:id` and its fragment twin
+  - `posts.ts` – authoring a post: create, my-posts, edit, delete
+  - `messages.ts` – inquiry send
+  - `auth.ts` – magic link login/logout/session
+  - `flags.ts` – post reporting
 - `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `users`, `moderation`
 - `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`
 - `templates/pages/` – Eleventy (Nunjucks) page templates
@@ -23,9 +29,9 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 
 ## Current State — updated 2026-08-12
 
-Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **Refactor tasks 1, 2, 3, 4 and 5 have landed** (see `docs/refactor/`); only task 6 remains.
+Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **All six refactor tasks have landed** (see `docs/refactor/`, now closed).
 
-Suite is **299 tests across 11 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Suite is **373 tests across 12 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Trailing-slash 404 on every Worker route — fixed 2026-08-10
 
@@ -238,6 +244,54 @@ fails both wildcard tests.
 
 ---
 
+### Refactor Task 6 — `api.ts` is split and deleted, 2026-08-12
+
+`src/routes/api.ts` is gone. Its 804 lines are seven modules by concern, and no
+file in `src/routes/` now exceeds 303 lines (it was 1,199 at review). This was
+the last task in `docs/refactor/`, and it was worth deferring: Task 1 removed
+the hand-built responses and Task 3 the SQL, so what was left to split was
+*guard → repository call → response*, and the seams follow the `src/db/` modules
+instead of being drawn wherever the line count happened to allow.
+
+| Module | Lines | Holds |
+|---|---|---|
+| `posts.ts` | 303 | authoring: create, my-posts, edit, delete |
+| `post-detail.ts` | 172 | reading: `/post/:id`, its fragment twin, `renderPostDetail` |
+| `conferences.ts` | 146 | `/conference/:slug`, featured list, their render helpers |
+| `components.ts` | 130 | five `/api/components/*` fragments |
+| `search.ts` | 102 | `/search` |
+| `messages.ts` | 85 | inquiry send |
+| `subjects.ts` | 63 | `/subject/:slug` |
+
+- **The seam inside "posts" is authoring versus reading.** The plan put
+  `handlePostPage` in `posts.ts` and `handleComponentPost` in `components.ts`,
+  but those two share `renderPostDetail()` — following the plan meant either a
+  route-to-route import or a shared `render.ts`, both of which the task's own
+  criteria ban. They live together in `post-detail.ts` instead, which keeps the
+  renderer private and makes "delete the component route once browser caches
+  expire" (see backlog) a one-file change. What is left in `posts.ts` all
+  requires a session and acts on your own posts; everything in `post-detail.ts`
+  renders for anonymous viewers too.
+- **Render helpers stayed private to one module each.** No shared `render.ts`
+  was created. A grab bag would have rebuilt `api.ts` a piece at a time, and the
+  no-cross-import rule is what makes the pull toward one visible.
+- **It is a pure move, and that was proven rather than assumed.** All 23
+  top-level functions across the old `api.ts` and `posts.ts` are byte-identical
+  in their new homes — checked by extracting and comparing each one — and
+  `git diff src/routes.ts` touches only the import block, so the `ROUTES` array
+  and therefore every path → handler binding is unchanged. A `wrangler dev`
+  response diff was planned but skipped: with the handler bodies and the route
+  table both proven identical, it could only have sampled what was already
+  established.
+- **`test/route-modules.test.ts`** holds the new invariants: no route module
+  imports another, none exceeds a 320-line bound, and every exported `handle*`
+  appears in `ROUTES`. Checked against mutation like the earlier guard tests — a
+  sibling import, a padded file, and a deleted `ROUTES` row each fail it.
+- **No behaviour changed**, deliberately or otherwise. This is the only task in
+  the six with an empty "deliberate behaviour changes" list.
+
+---
+
 ## Open decisions
 
 ### `.edu` email restriction — built as a switch, currently OFF
@@ -256,7 +310,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 
 ## Backlog
 
-- **Refactor task 6 remains** — see `docs/refactor/`. It was blocked on task 3, which has landed, so the seams it splits `api.ts` along now follow the `src/db/` modules rather than being arbitrary.
+- **Handler-level error handling is the one structural theme the refactor left alone.** `src/` still has 24 `try {` blocks, roughly one per handler, each catching its own D1 failure and returning `errorPage()` or a fragment. Task 1 standardised what a failure renders and Task 2 removed the auth branches, but nothing collapsed the repetition itself. It was never in scope for any of the six tasks; noting it so the next reader knows it is a gap rather than an oversight.
 - **The custom 404 page is probably never served.** `not_found_handling = "404-page"` looks for `public/404.html`, but Eleventy emits `public/404/index.html`. Found while verifying Task 4; not yet confirmed against production.
 - **Worker pages are inconsistent about `description` / `canonicalUrl`.** `renderShell()` omits the meta and canonical tags when a handler passes nothing, which is the case for `/search`, `/my-posts` and the edit/delete/report pages. Task 4 fixed the shell and the nine static pages; this is the remaining half, and it is per-handler content rather than shell shape.
 - **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
@@ -264,7 +318,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Production `tags` drift from `db/schema.sql`.** Prod serves 5 tags with short slugs (`bio`, `chem`, `cs`, `math`, `physics`); the schema seeds 12 with long ones (`biology`, `chemistry`, `computer-science`, …). Re-running `db/schema.sql` against prod would *add* the 12 rather than reconcile, leaving a duplicated subject list. Decide which slug set is canonical and migrate before re-running the seed.
 - **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users.
 - **The homepage's featured-conference list is still HTMX-loaded.** `templates/pages/index.njk` fetches `/api/featured-conferences` on load, so crawlers see the homepage copy but none of the conference links. Smaller than the `/post/:id` case just fixed — the page has real content of its own and the same conferences are reachable from `/search` and `/subject/:slug` — but it is the last place where indexable links exist only after JS runs. Fixing it means either server-rendering `/` (it is currently a static asset) or accepting the gap.
-- **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `getPostDetail()` / `renderPostDetail()` with `handlePostPage`, so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler, its entry in `ROUTES` (`src/routes.ts`), and the row in the AGENTS.md route table. `test/assets.test.ts` reads `ROUTES`, so nothing else needs updating.
+- **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `renderPostDetail()` with `handlePostPage` and now sits in the same file (`src/routes/post-detail.ts`), so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler from `post-detail.ts`, its entry in `ROUTES` (`src/routes.ts`), and the row in the AGENTS.md route table. `test/assets.test.ts` and `test/route-modules.test.ts` both read `ROUTES`, so nothing else needs updating — but remove it from *both* places or the latter fails on a handler exported and never registered.
 - **Post creation is not atomic (known limit).** Creating a post against a *new* conference is three separate writes: conference insert, tag batch, post insert. If the post insert fails, the conference survives as an orphan and holds its slug, so the user's retry gets `-2` appended to it. `batch()` cannot fix this — the post insert needs the id the conference insert `RETURNING`s, and `batch()` has no way to pipe one statement's output into the next. A real fix needs either a different API shape or a periodic sweep of conferences with zero posts. Recorded in the `src/db/conferences.ts` module doc, with a pointer from the `conferenceId === "new"` branch in `handleCreatePost`.
 - **Moderation review.** `flags` rows are written and emailed to `admin@researchroomies.com`, but there is no in-app review UI. That needs an admin concept (`users.is_admin` or similar), which the schema does not have.
 - **Structured locations.** `countries` / `states` / `cities` and `conferences.city_id` remain intentionally dormant; city/state are free text. Revisit if location-based search is wanted.
@@ -284,6 +338,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **One page shell: `renderShell()` in `src/lib/shell.mjs`.** It is the only definition of the doctype, `<head>`, nav and footer. `renderFullPage()` calls it for Worker pages; `scripts/gen-layout.mjs` calls it during `npm run build` to *generate* `templates/layouts/base.njk` for Eleventy. Edit the chrome there and nowhere else — `base.njk` carries a `{# GENERATED FILE #}` banner and `test/shell.test.ts` renders both sides and diffs them byte for byte, so a hand-edited layout or a stale committed one fails the suite instead of drifting quietly.
 - **One response path: `src/lib/response.ts`.** Never hand-build `new Response(html, { headers })`. `pageResponse()` for Worker pages, `fragmentResponse()` for `/api/components/*`, and `notFoundPage()` / `forbiddenPage()` / `errorPage()` for failures. `opts.cache` is a closed union defaulting to `'private'`; `errorPage()` takes no argument so an exception message cannot reach the client. Bare-text 4xx/405s, redirects and the two JSON endpoints in `auth.ts` are still plain `new Response` on purpose — converting them would change the wire format, and their shapes are Task 2's subject.
 - **Routes live in `src/routes.ts`, not `index.ts`.** Add a `{ method, path, handler }` entry to `ROUTES`, without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`. `test/assets.test.ts` reads `ROUTES` and fails if you forget either.
+- **One route module per concern, and none imports another.** The handler goes in the `src/routes/` module that owns its concern; if two modules need the same thing it belongs in `src/lib/` or `src/db/`, never in a sibling and never in a shared `render.ts` — that grab bag is how `api.ts` reached 1,199 lines. Render helpers stay private to the module that uses them, which is why `/post/:id` and `/api/components/post/:id` share `post-detail.ts` rather than splitting across `posts.ts` and `components.ts`. `test/route-modules.test.ts` fails the build on a cross-module import, on a module over 320 lines, or on a handler exported but not registered.
 - **Deployment literals live in `src/lib/config.ts`.** `getConfig(env, request?)` is the only place an origin, TTL, sitekey, Mailgun setting or admin address is defined. The session TTL in particular has exactly one definition feeding both the cookie `Max-Age` and the token `exp` — they were two independent constants agreeing by coincidence, and divergence is a silent logout.
 - **One data path: `src/db/`.** Handlers never touch `env.DB`; they call a named function from the module that owns the table, and every row shape is defined once in `src/db/types.ts`. `test/db-access.test.ts` fails the build on a `DB.prepare` outside `src/db/`, on any `as unknown as` in `src/`, or on a row shape declared next to a query. Type reads with D1's `.first<T>()` / `.all<T>()` generics — the casts they replace are what let `getAllConferences()` claim to return full conferences from a `SELECT id, name`.
 - **Route ids:** parse with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`. `parseInt("12abc", 10)` is `12` and passes `Number.isFinite()`, which silently turns a malformed URL into a lookup of a different row.
