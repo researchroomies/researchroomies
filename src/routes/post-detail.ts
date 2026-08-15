@@ -41,6 +41,16 @@ function renderPostDetail(
         <p>Please <a href="/login">log in</a> to send an inquiry.</p>
     `;
 
+  // Both variants point at the report route; only the label and the target
+  // differ. Anonymous, the route 302s to /login and the magic-link callback
+  // lands on the homepage rather than back here, so a same-tab click costs the
+  // reader the post they were looking at. Opening a new tab keeps this one, and
+  // the second click — cookie now set — reaches the form directly. The label
+  // says so up front instead of letting the login bounce be the explanation.
+  const reportAction = viewer.isLoggedIn
+    ? `<a href="/post/${post.id}/report" class="report-link">Report this post</a>`
+    : `<a href="/post/${post.id}/report" class="report-link" target="_blank">Log in to report this post</a>`;
+
   const ownerActions = viewer.isAuthor
     ? `
         <p class="post-actions">
@@ -50,7 +60,7 @@ function renderPostDetail(
       `
     : `
         <p class="post-actions">
-          <a href="/post/${post.id}/report" class="report-link">Report this post</a>
+          ${reportAction}
         </p>
       `;
 

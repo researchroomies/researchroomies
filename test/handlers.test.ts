@@ -6,6 +6,7 @@ import {
 	handleEditPostSubmit,
 	handleMyPosts,
 } from '../src/routes/posts';
+import { handlePostPage } from '../src/routes/post-detail';
 import { getPost, getPostWithConference } from '../src/db/posts';
 import { getConferenceBySlug } from '../src/db/conferences';
 import { listTagsForConference } from '../src/db/tags';
@@ -487,5 +488,66 @@ describe('handleDeletePostSubmit', () => {
 
 		expect(response.status).toBe(403);
 		expect(await getPost(testEnv, postId)).not.toBeNull();
+	});
+});
+
+describe('handlePostPage report link', () => {
+	async function post() {
+		const authorId = await seedUser('author@university.edu');
+		const conferenceId = await seedConference({
+			userId: authorId,
+			name: 'Topology Workshop',
+			slug: 'topology-workshop',
+			start: '2026-04-01',
+			stop: '2026-04-03',
+		});
+		const postId = await seedPost({
+			userId: authorId,
+			conferenceId,
+			title: 'Splitting a room',
+			description: 'Two nights near the venue',
+		});
+		return { authorId, postId };
+	}
+
+	async function body(postId: number, cookie?: string): Promise<string> {
+		const response = await handlePostPage(
+			testRequest(`/post/${postId}`, cookie ? { cookie } : {}),
+			testEnv,
+			ctx(),
+			{ id: String(postId) },
+		);
+		expect(response.status).toBe(200);
+		return await response.text();
+	}
+
+	// The label is the whole point of the anonymous variant: the route 302s to
+	// /login either way, and the only thing that stops that being a surprise is
+	// saying so on the link. A new tab keeps the post page alive across it.
+	it('tells an anonymous reader to log in, and opens the attempt in a new tab', async () => {
+		const { postId } = await post();
+		const html = await body(postId);
+
+		expect(html).toContain('Log in to report this post');
+		expect(html).toContain(`<a href="/post/${postId}/report" class="report-link" target="_blank">`);
+	});
+
+	it('gives a signed-in reader the plain report link, in the same tab', async () => {
+		const { postId } = await post();
+		const readerId = await seedUser('reader@university.edu');
+		const html = await body(postId, await sessionCookie(readerId, 'reader@university.edu'));
+
+		expect(html).toContain('>Report this post</a>');
+		expect(html).not.toContain('Log in to report this post');
+		expect(html).not.toContain('target="_blank"');
+	});
+
+	it('offers the author edit and delete instead of either', async () => {
+		const { authorId, postId } = await post();
+		const html = await body(postId, await sessionCookie(authorId, 'author@university.edu'));
+
+		expect(html).toContain(`/post/${postId}/edit`);
+		expect(html).toContain(`/post/${postId}/delete`);
+		expect(html).not.toContain('report');
 	});
 });
