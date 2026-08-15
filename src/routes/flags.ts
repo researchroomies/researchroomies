@@ -36,6 +36,7 @@ function renderReportForm(env: Env, post: PostDetail): string {
         </select>
         <label for="details">Additional details (optional)</label>
         <textarea name="details" id="details" rows="5"></textarea>
+        <p class="form-disclaimer">Not sure whether something is a scam? Our <a href="/safety" target="_blank">Safety &amp; Scam Awareness Guide</a> lists the warning signs.</p>
         ${turnstileWidget(env)}
         <button type="submit">Submit Report</button>
       </form>
@@ -158,6 +159,7 @@ export async function handleReportSubmit(
       <div class="site-page">
         <h1>Report Received</h1>
         <p>Thanks &mdash; we've received your report. Our team will review it shortly.</p>
+        <p>If you were in contact with this user, our <a href="/safety">Safety &amp; Scam Awareness Guide</a> covers what to do next.</p>
         <p><a href="/post/${post.id}">Back to post</a></p>
       </div>
     `;

@@ -133,7 +133,7 @@ export function renderShell({
   <footer>
     <div class="fat-footer">
       <p>© ${escapeHtml(year)} ResearchRoomies. All rights reserved.</p>
-      <a href="/about">About</a> | <a href="/terms">Terms</a> | <a href="/privacy">Privacy</a>
+      <a href="/about">About</a> | <a href="/safety">Safety</a> | <a href="/terms">Terms</a> | <a href="/privacy">Privacy</a>
     </div>
   </footer>
 </body>
