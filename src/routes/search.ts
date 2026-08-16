@@ -1,6 +1,9 @@
 import { escapeHtml, formatDateRange } from "../lib/html";
 import { pageResponse } from "../lib/response";
 import { searchPosts, SEARCH_LIMIT } from "../db/posts";
+import { listShareTypes, listShareTypesForPosts } from "../db/share-types";
+import { shareTypeBadges, shareTypeOptions } from "../lib/share-types";
+import type { ShareType } from "../db/types";
 
 /**
  * `/search` — the post search page.
@@ -30,12 +33,26 @@ export async function handleSearch(
   const q = url.searchParams.get("q")?.trim() || "";
   const conference = url.searchParams.get("conference")?.trim() || "";
   const tag = url.searchParams.get("tag")?.trim() || "";
+  const share = url.searchParams.get("share")?.trim() || "";
   // The raw strings are kept to echo back into the form inputs; the parsed
   // timestamps are what the query filters on.
   const startParam = url.searchParams.get("start") || "";
   const endParam = url.searchParams.get("end") || "";
 
-  const searched = Boolean(q || conference || tag || startParam || endParam);
+  const searched = Boolean(
+    q || conference || tag || share || startParam || endParam,
+  );
+
+  // Server-rendered rather than fetched over HTMX like the subject filter
+  // beside it: this page is already Worker-rendered, so the list is one more
+  // await instead of a round trip. A failure leaves the dropdown with only its
+  // "anything" option, which is a weaker page but still a working search.
+  let shareTypeList: ShareType[] = [];
+  try {
+    shareTypeList = await listShareTypes(env);
+  } catch (error) {
+    console.error("Error loading share types:", error);
+  }
 
   let resultsHtml = "";
 
@@ -44,9 +61,15 @@ export async function handleSearch(
       q,
       conference,
       tag,
+      share,
       overlapsFrom: dateParamToTimestamp(startParam),
       overlapsUntil: dateParamToTimestamp(endParam),
     });
+    // One query for the page's badges rather than one per card.
+    const shareTypes = await listShareTypesForPosts(
+      env,
+      results.map((post) => post.id),
+    );
 
     if (results.length === 0) {
       resultsHtml = searched
@@ -60,6 +83,7 @@ export async function handleSearch(
             (post) => `
         <div class="post-card">
           <h3><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+          ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
           <p>${escapeHtml(post.description.slice(0, 160))}${post.description.length > 160 ? "…" : ""}</p>
           <small>
             <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a>
@@ -87,6 +111,10 @@ export async function handleSearch(
                 hx-trigger="load"
                 hx-swap="innerHTML">
           <option value="">Subject</option>
+        </select>
+        <select name="share">
+          <option value="">Sharing anything</option>
+          ${shareTypeOptions(shareTypeList, share)}
         </select>
         <input type="date" name="start" value="${escapeHtml(startParam)}" />
         <input type="date" name="end" value="${escapeHtml(endParam)}" />

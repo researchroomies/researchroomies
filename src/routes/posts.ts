@@ -1,22 +1,22 @@
 import { sessionUserId } from "../lib/session";
-import { escapeHtml, formatDate, formatDateRange } from "../lib/html";
+import { escapeHtml } from "../lib/html";
 import { errorPage, pageResponse } from "../lib/response";
 import { requireOwnedPost, requireUser } from "../lib/guards";
 import { verifyTurnstile } from "../lib/turnstile";
 import { parseRouteId } from "../lib/params";
-import {
-  createPost,
-  deletePostAndFlags,
-  listPostsForUser,
-  updatePost,
-} from "../db/posts";
+import { createPost, deletePostAndFlags, updatePost } from "../db/posts";
 import { createConference, reserveSlug } from "../db/conferences";
 import { tagConference } from "../db/tags";
+import { setShareTypesForPost } from "../db/share-types";
+import {
+  renderShareTypePicker,
+  submittedShareTypes,
+} from "../lib/share-types";
 
 /**
- * Authoring a post: create, list your own, edit, delete. Every handler here
- * requires a session; the *reading* side of a post, which renders for anonymous
- * viewers too, is in post-detail.ts.
+ * Authoring a post: create, edit, delete. Every handler here requires a session
+ * and changes a post; the *reading* side, which renders for anonymous viewers
+ * too, is in post-detail.ts, and the author's own listing is in my-posts.ts.
  *
  * The four ownership handlers are each "session → parse id → fetch post →
  * compare user_id", which used to be written out four times. `requireOwnedPost()`
@@ -118,7 +118,7 @@ export async function handleCreatePost(
       return new Response("Invalid conference", { status: 400 });
     }
 
-    await createPost(env, {
+    const postId = await createPost(env, {
       userId,
       conferenceId: parsedConferenceId,
       title,
@@ -126,61 +126,14 @@ export async function handleCreatePost(
       createdAt: now,
     });
 
+    // Share types are post-level and optional. setShareTypesForPost() drops any
+    // slug outside the curated list, and writes nothing when none were checked.
+    await setShareTypesForPost(env, postId, submittedShareTypes(formData));
+
     return Response.redirect(`${new URL(request.url).origin}/my-posts`, 303);
   } catch (err) {
     console.error("Error creating post:", err);
     return new Response("Internal Server Error", { status: 500 });
-  }
-}
-
-export async function handleMyPosts(
-  request: Request,
-  env: Env,
-  _ctx: ExecutionContext,
-  _params?: Record<string, string>,
-): Promise<Response> {
-  const guard = await requireUser(request, env, "page");
-  if (!guard.ok) return guard.response;
-  const user = guard.value;
-
-  try {
-    const results = await listPostsForUser(env, sessionUserId(user));
-
-    let postsHtml = "";
-    if (results.length === 0) {
-      postsHtml = `<p class="empty-state">You haven't created any posts yet. <a href="/create">Create your first post</a></p>`;
-    } else {
-      postsHtml = `<ul class="my-posts-list">`;
-      for (const post of results) {
-        postsHtml += `
-          <li class="my-post-item">
-            <h3><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
-            <p class="conference-info">
-              <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a>
-              &middot; ${formatDateRange(post.start_time, post.stop_time)}
-            </p>
-            <p class="created-info">Posted on ${formatDate(post.created_at)}</p>
-            <p class="post-actions">
-              <a href="/post/${post.id}/edit" class="nav-link">Edit</a>
-              <a href="/post/${post.id}/delete" class="nav-link danger-link">Delete</a>
-            </p>
-          </li>
-        `;
-      }
-      postsHtml += `</ul>`;
-    }
-
-    const content = `
-      <div class="site-page">
-        <h1>My Posts</h1>
-        ${postsHtml}
-      </div>
-    `;
-
-    return pageResponse("My Posts", content);
-  } catch (error) {
-    console.error("Error fetching my posts:", error);
-    return errorPage();
   }
 }
 
@@ -194,6 +147,14 @@ export async function handleEditPostForm(
   if (!guard.ok) return guard.response;
   const { post } = guard.value;
 
+  // This picker is what keeps share types from repeating the subject-tag
+  // mistake: subjects can only ever be set while creating a conference, so the
+  // ones that predate the feature are untaggable and /search?tag= finds nothing.
+  // Every post can be typed here, whenever it was written. null is a read
+  // failure, and must not degrade into a form whose save would clear the post.
+  const pickerHtml = await renderShareTypePicker(env, post.id);
+  if (pickerHtml === null) return errorPage();
+
   const content = `
     <div class="site-page">
       <h2>Edit Post</h2>
@@ -206,6 +167,8 @@ export async function handleEditPostForm(
 
         <label>Description</label>
         <textarea name="description" rows="6" required>${escapeHtml(post.description)}</textarea>
+
+        ${pickerHtml}
 
         <button type="submit">Save Changes</button>
       </form>
@@ -243,6 +206,11 @@ export async function handleEditPostSubmit(
     // updatePost() keeps the user_id in its WHERE as defence in depth on top of
     // requireOwnedPost() — an id can never be trusted from the form body.
     await updatePost(env, post.id, sessionUserId(user), { title, description });
+
+    // Replace, not add: unchecked boxes submit nothing, so an add-only write
+    // would make removing a share type impossible. Ownership is already settled
+    // by requireOwnedPost() above.
+    await setShareTypesForPost(env, post.id, submittedShareTypes(formData));
 
     return Response.redirect(new URL(`/post/${post.id}`, request.url).href, 303);
   } catch (error) {

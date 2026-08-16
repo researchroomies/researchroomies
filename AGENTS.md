@@ -75,8 +75,7 @@ researchroomies/
 │   └── layouts/
 │       └── base.njk          # GENERATED from src/lib/shell.mjs – do not edit
 ├── public/                   # Eleventy output – DO NOT EDIT DIRECTLY (gitignored)
-├── db/
-│   └── schema.sql            # D1 schema (SQLite)
+├── migrations/               # D1 migrations (SQLite), applied in NNNN_ order
 ├── test/
 │   ├── auth_verification.test.ts   # Magic link + session token crypto
 │   ├── routing.test.ts             # Router matching + trailing slashes
@@ -268,7 +267,7 @@ The callback is reached by clicking a link in an email, so every failure path re
 
 **Engine:** Cloudflare D1 (SQLite dialect)  
 **Binding:** `env.DB`  
-**Schema:** `db/schema.sql`  
+**Schema:** `migrations/*.sql`, applied in order — there is no standalone schema file  
 **All queries live in `src/db/`** — see below.
 
 ### SQL lives in `src/db/`, nowhere else
@@ -531,8 +530,9 @@ tests run against real SQL rather than a fake `env.DB` — which is the point, a
 a fake returns whatever rows the test hands it and so cannot fail on a bad
 binding or a filter that matches everything.
 
-`test/helpers/seed.ts` has the fixtures: `resetDatabase()` (applies
-`db/schema.sql`, then empties every table but `tags`), `seedUser` /
+`test/helpers/seed.ts` has the fixtures: `resetDatabase()` (applies every
+`migrations/*.sql` in order, then empties every table but the curated
+`tags` / `share_types` lists), `seedUser` /
 `seedConference` / `seedPost`, `sessionCookie(userId)`, `testRequest(path, …)`
 and `expectTurnstile(success)`.
 

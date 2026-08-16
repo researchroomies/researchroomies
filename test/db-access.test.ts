@@ -84,6 +84,7 @@ describe('A. SQL is reached only through src/db/', () => {
 			'src/db/conferences.ts',
 			'src/db/moderation.ts',
 			'src/db/posts.ts',
+			'src/db/share-types.ts',
 			'src/db/tags.ts',
 			'src/db/users.ts',
 		]);
@@ -119,7 +120,8 @@ describe('C. row shapes are declared once, in src/db/types.ts', () => {
 	 * is how a post came to have six different shapes. These field names are the
 	 * tell: they are database columns, so an interface declaring one is a row.
 	 */
-	const COLUMN_ISH = /^\s*(user_id|conference_id|conference_name|conference_slug|location_address|start_time|stop_time|created_at|last_login_at|flagged_by|post_count|tag_slug)\s*[?]?\s*:/m;
+	const COLUMN_ISH =
+		/^\s*(user_id|conference_id|conference_name|conference_slug|location_address|start_time|stop_time|created_at|last_login_at|flagged_by|post_count|tag_slug|post_id|share_slug|sort_order)\s*[?]?\s*:/m;
 
 	it.each(SOURCES.filter((file) => file !== 'src/db/types.ts'))('%s declares no row shape', (file) => {
 		const interfaces = code(file).match(/(?:interface|type)\s+\w+\s*=?\s*\{[^}]*\}/g) ?? [];
@@ -138,6 +140,8 @@ describe('C. row shapes are declared once, in src/db/types.ts', () => {
 			'Post',
 			'PostDetail',
 			'PostWithConference',
+			'PostShareType',
+			'ShareType',
 			'Tag',
 			'User',
 		]) {

@@ -1,5 +1,4 @@
 import { env, fetchMock } from 'cloudflare:test';
-import schema from '../../db/schema.sql?raw';
 import { generateSessionToken } from '../../src/lib/auth';
 import { COOKIE_NAME } from '../../src/lib/session';
 import { createConference } from '../../src/db/conferences';
@@ -21,8 +20,29 @@ import { upsertUserOnLogin } from '../../src/db/users';
  * the fixtures exercise the same interface the handlers use.
  */
 
-/** `;` also appears inside `--` comments in schema.sql, so strip those first. */
-const SCHEMA_STATEMENTS = schema
+/**
+ * The real migration chain, in order — the same files
+ * `wrangler d1 migrations apply` runs.
+ *
+ * Reading migrations/ rather than a separate schema file is what keeps this
+ * suite honest: there is one definition of the database, and a migration that
+ * does not produce a working schema fails the tests instead of failing on
+ * deploy. It also means the tests exercise the tag rename, so the post-migration
+ * slugs are the ones every assertion sees.
+ *
+ * Sorted by filename, which is what the `NNNN_` prefix is for.
+ */
+const MIGRATIONS = import.meta.glob('../../migrations/*.sql', {
+	query: '?raw',
+	import: 'default',
+	eager: true,
+}) as Record<string, string>;
+
+/** `;` also appears inside `--` comments, so strip those before splitting. */
+const SCHEMA_STATEMENTS = Object.keys(MIGRATIONS)
+	.sort()
+	.map((path) => MIGRATIONS[path])
+	.join('\n')
 	.replace(/^\s*--.*$/gm, '')
 	.split(';')
 	.map((statement) => statement.trim())
@@ -47,7 +67,8 @@ export const testEnv: Env = {
  *
  * The schema file is idempotent, and the deletes make each test independent of
  * whatever ran before it regardless of how the pool's storage isolation is
- * configured. `tags` keeps its seeded rows — it is a curated list, not test data.
+ * configured. `tags` and `share_types` keep their seeded rows — they are curated
+ * lists, not test data.
  */
 export async function resetDatabase(): Promise<void> {
 	for (const statement of SCHEMA_STATEMENTS) {
@@ -57,6 +78,7 @@ export async function resetDatabase(): Promise<void> {
 		env.DB.prepare('DELETE FROM flags'),
 		env.DB.prepare('DELETE FROM message'),
 		env.DB.prepare('DELETE FROM conference_tags'),
+		env.DB.prepare('DELETE FROM post_share_types'),
 		env.DB.prepare('DELETE FROM posts'),
 		env.DB.prepare('DELETE FROM conferences'),
 		env.DB.prepare('DELETE FROM users'),

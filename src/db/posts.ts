@@ -122,6 +122,7 @@ function buildSearchClauses(filters: SearchFilters): Clause[] {
 	const q = filters.q?.trim();
 	const conference = filters.conference?.trim();
 	const tag = filters.tag?.trim();
+	const share = filters.share?.trim();
 
 	if (q) {
 		const pattern = `%${escapeLike(q)}%`;
@@ -140,6 +141,15 @@ function buildSearchClauses(filters: SearchFilters): Clause[] {
 		clauses.push({
 			sql: `conferences.id IN (SELECT conference_id FROM conference_tags WHERE tag_slug = ?)`,
 			bindings: [tag],
+		});
+	}
+	// Membership, not equality: a post offering both a room and a car seat has
+	// two rows here, and must match a filter on either one. A JOIN would return
+	// the post twice when a future filter matches more than one row.
+	if (share) {
+		clauses.push({
+			sql: `posts.id IN (SELECT post_id FROM post_share_types WHERE share_slug = ?)`,
+			bindings: [share],
 		});
 	}
 	// A conference matches the range if it overlaps it: it must not have ended

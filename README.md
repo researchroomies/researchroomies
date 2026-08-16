@@ -71,8 +71,9 @@ This project is built on [Cloudflare](https://developers.cloudflare.com/workers/
 
 4. **Setup local D1 database**
    ```bash
-   npx wrangler d1 execute research-roomies --local --file=./db/schema.sql
+   npx wrangler d1 migrations apply research-roomies --local
    ```
+   Schema changes go in `migrations/`, never in an edited-and-re-run seed file — see **Database migrations** below.
 
 ### 🛠 Development
 
@@ -145,9 +146,10 @@ npx wrangler secret put TURNSTILE_SECRET_KEY
 ## 📂 Project Structure
 
 ```text
-├── db/
-│   ├── schema.sql          # D1 database schema (idempotent; safe to re-run)
-│   └── README.md
+├── migrations/             # D1 migrations, applied in NNNN_ order
+│   ├── 0001_baseline.sql   # production as it stood before migrations existed
+│   ├── 0002_canonical_subject_slugs.sql
+│   └── 0003_share_types.sql
 ├── public/                 # Eleventy build output (git-ignored, do not edit directly)
 │   └── style/style.css
 ├── src/

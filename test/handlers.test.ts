@@ -4,8 +4,8 @@ import {
 	handleCreatePost,
 	handleDeletePostSubmit,
 	handleEditPostSubmit,
-	handleMyPosts,
 } from '../src/routes/posts';
+import { handleMyPosts } from '../src/routes/my-posts';
 import { handlePostPage } from '../src/routes/post-detail';
 import { getPost, getPostWithConference } from '../src/db/posts';
 import { getConferenceBySlug } from '../src/db/conferences';

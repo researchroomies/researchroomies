@@ -3,6 +3,7 @@ import { escapeHtml } from "../lib/html";
 import { fragmentResponse } from "../lib/response";
 import { listConferences } from "../db/conferences";
 import { listTags } from "../db/tags";
+import { renderShareTypePicker } from "../lib/share-types";
 
 /**
  * `/api/components/*` — HTMX fragments: raw HTML, never JSON, never a full page.
@@ -111,6 +112,32 @@ export async function handleComponentTagOptions(
       cache: "none",
     });
   }
+}
+
+/**
+ * The share-type checkboxes for the create-post form.
+ *
+ * The create page is a static Eleventy asset, so it cannot render the curated
+ * list itself; the edit form is Worker-rendered and calls `shareTypeCheckboxes()`
+ * directly. Both go through that one helper, so the two forms cannot drift.
+ *
+ * Nothing here varies by session — it is the same curated list for everyone —
+ * so it caches publicly like the other list fragments.
+ */
+export async function handleComponentShareTypeOptions(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const html = await renderShareTypePicker(env, null);
+
+  // Empty rather than an error message: the field is optional and this form has
+  // not saved anything yet, so a failure here should cost the picker, not the
+  // ability to post. The edit form treats the same null as fatal, because there
+  // its save is replace-all and a missing picker would clear the post.
+  if (html === null) return fragmentResponse("", { status: 500, cache: "none" });
+
+  return fragmentResponse(html, { cache: "public-long" });
 }
 
 export async function handleComponentNavUser(

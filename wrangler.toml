@@ -2,6 +2,8 @@ name = "researchroomies"
 main = "src/index.ts"
 compatibility_date = "2025-08-26"
 
+account_id = "3cec30fdcb5e689c159089dc6772ae0b"
+
 [vars]
 # Optional institutional-email gate on login/signup. Off by default.
 # Set to "true" and redeploy to accept only addresses ending in .edu.
@@ -11,10 +13,7 @@ compatibility_date = "2025-08-26"
 # already registered with a non-.edu address loses the ability to log in.
 RESTRICT_EDU_EMAILS = "false"
 
-# Public Cloudflare Turnstile sitekey. This is the ONLY definition of it: the
-# Worker reads it from env, and eleventy.config.js reads it back out of this
-# file to expose it to the .njk widgets. Rotating the widget is one edit here.
-# The matching TURNSTILE_SECRET_KEY is a secret and must NOT be added here.
+# public turnstile key
 TURNSTILE_SITE_KEY = "0x4AAAAAAByAHmDummOs9UGm"
 
 [observability]
@@ -55,3 +54,8 @@ custom_domain = true
 binding = "DB"
 database_name = "research-roomies"
 database_id = "5469b98f-87d2-45d2-8e3d-738e45c1e3f2"
+# Schema changes go in migrations/, never in an edited-and-re-run seed file.
+# `wrangler d1 migrations apply research-roomies --local|--remote` runs the
+# unapplied ones in order and records them in `d1_migrations`. This is wrangler's
+# default directory; it is written out so the convention is visible in config.
+migrations_dir = "migrations"

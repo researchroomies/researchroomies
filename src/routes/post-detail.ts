@@ -10,7 +10,9 @@ import {
 } from "../lib/response";
 import { parseRouteId } from "../lib/params";
 import { getPostWithConference } from "../db/posts";
-import type { PostDetail } from "../db/types";
+import { listShareTypesForPost } from "../db/share-types";
+import { shareTypeBadges } from "../lib/share-types";
+import type { PostDetail, ShareType } from "../db/types";
 
 /**
  * Reading a post: the `/post/:id` page and its HTMX fragment twin.
@@ -25,6 +27,7 @@ import type { PostDetail } from "../db/types";
 function renderPostDetail(
   env: Env,
   post: PostDetail,
+  shareTypes: ShareType[],
   viewer: { isLoggedIn: boolean; isAuthor: boolean; sent: boolean },
 ): string {
   const formHtml = viewer.isLoggedIn
@@ -72,6 +75,7 @@ function renderPostDetail(
       ${sentNotice}
       <article>
         <h2>${escapeHtml(post.title)}</h2>
+        ${shareTypeBadges(shareTypes)}
         <p>${escapeHtml(post.description)}</p>
         <p><strong>Conference:</strong> <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a></p>
         ${ownerActions}
@@ -110,10 +114,13 @@ export async function handlePostPage(
       return notFoundPage("Post");
     }
 
-    const user = await optionalUser(request, env);
+    const [user, shareTypes] = await Promise.all([
+      optionalUser(request, env),
+      listShareTypesForPost(env, post.id),
+    ]);
     const url = new URL(request.url);
 
-    const content = `<div class="site-page">${renderPostDetail(env, post, {
+    const content = `<div class="site-page">${renderPostDetail(env, post, shareTypes, {
       isLoggedIn: user !== null,
       isAuthor: user !== null && sessionUserId(user) === post.user_id,
       sent: url.searchParams.get("sent") === "1",
@@ -162,9 +169,12 @@ export async function handleComponentPost(
       });
     }
 
-    const user = await optionalUser(request, env);
+    const [user, shareTypes] = await Promise.all([
+      optionalUser(request, env),
+      listShareTypesForPost(env, post.id),
+    ]);
 
-    const html = renderPostDetail(env, post, {
+    const html = renderPostDetail(env, post, shareTypes, {
       isLoggedIn: user !== null,
       isAuthor: user !== null && sessionUserId(user) === post.user_id,
       sent: new URL(request.url).searchParams.get("sent") === "1",

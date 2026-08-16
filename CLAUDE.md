@@ -15,15 +15,125 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
   - `search.ts` – `/search`
   - `components.ts` – the `/api/components/*` HTMX fragments
   - `post-detail.ts` – reading a post: `/post/:id` and its fragment twin
-  - `posts.ts` – authoring a post: create, my-posts, edit, delete
+  - `posts.ts` – authoring a post: create, edit, delete
+  - `my-posts.ts` – `/my-posts`, the author's own listing
   - `messages.ts` – inquiry send
   - `auth.ts` – magic link login/logout/session
   - `flags.ts` – post reporting
-- `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `users`, `moderation`
-- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`
+- `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `share-types`, `users`, `moderation`
+- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`, `share-types` (the picker/badge/option markup)
 - `templates/pages/` – Eleventy (Nunjucks) page templates
 - `templates/layouts/base.njk` – **generated** from `shell.mjs`; do not edit
-- `db/schema.sql` – D1 schema (idempotent; safe to re-run)
+- `migrations/` – D1 migrations, applied in `NNNN_` order; **the only definition of the database**
+
+---
+
+## D1 migrations + the subject-slug rename, 2026-08-15
+
+`db/schema.sql` is **deleted**. The database is defined by `migrations/`, applied
+in `NNNN_` order by `wrangler d1 migrations apply research-roomies --local|--remote`
+and tracked in a `d1_migrations` table.
+
+The old file was `CREATE IF NOT EXISTS` + `INSERT OR IGNORE`: idempotent for
+*creation*, silently a no-op for *change*. It could not express "rename this
+row", so editing the tag seed from five slugs to twelve changed new databases and
+left production untouched — and nobody found out until a subject filter returned
+nothing. That is the whole reason this exists.
+
+| File | Does |
+|---|---|
+| `0001_baseline.sql` | Production as it stood before migrations. Every statement idempotent, so it is a no-op there and the real thing on a fresh database. Seeds the **five short** slugs, i.e. the drift written down rather than papered over. |
+| `0002_canonical_subject_slugs.sql` | The rename: upsert 12 → repoint `conference_tags` → delete the 4 retired slugs. |
+| `0003_share_types.sql` | The share-type tables and seed, separate because production does not have them yet. |
+
+- **The twelve won over the five on product grounds, not aesthetics.** The five
+  (`bio`, `chem`, `cs`, `math`, `physics`) are STEM-only; a cost-sharing site for
+  academics that cannot list humanities, social sciences or education excludes
+  the fields with the thinnest travel budgets. `physics` is already correct and
+  is deliberately not renamed — only four slugs move.
+- **Insert → repoint → delete, not `UPDATE tags SET slug`.** `conference_tags.tag_slug`
+  is a foreign key with no `ON UPDATE CASCADE`; this ordering never leaves a
+  dangling reference, so it is correct whether or not D1 is enforcing FKs.
+  `UPDATE OR REPLACE` on the join table collapses the one possible primary-key
+  collision (a conference tagged both `cs` and `computer-science`); plain UPDATE
+  would abort the migration and `OR IGNORE` would silently drop the tag.
+- **Upsert, not `INSERT OR IGNORE`, for the seeds.** Production's stored tag
+  *names* were never in version control, so IGNORE would have left whatever was
+  there. `ON CONFLICT(slug) DO UPDATE SET name = excluded.name` makes the end
+  state independent of the starting state — proven in the rehearsal below, where
+  `Bio` became `Biology`.
+- **The test suite reads `migrations/`,** not a separate schema file
+  (`test/helpers/seed.ts` globs and concatenates them). One definition of the
+  database, and a migration that does not produce a working schema fails the
+  tests rather than the deploy. `test/migrations.test.ts` pins the end state: 12
+  subjects, no surviving short slug, every subject named, non-STEM present.
+
+**Rehearsed against a local D1 seeded to look like production** — schema, the
+five short slugs with deliberately wrong names (`Bio`, `CS`), `conference_tags`
+rows pointing at `cs`/`bio`, and no `d1_migrations` table. After
+`migrations apply`: 12 tags, 0 stale slugs, names corrected, join rows repointed
+to `computer-science`/`biology`, 0 orphans, 5 share types. Re-applying reports
+"No migrations to apply". A fresh database run through the same chain lands in
+the identical state.
+
+**To deploy:** `npx wrangler d1 migrations apply research-roomies --remote`, then
+`npm run deploy`. Migrations first — `0003` creates tables the new code queries.
+
+---
+
+## Share types — one post can offer several things, 2026-08-15
+
+A post now records **what it is offering to share** as data rather than only as
+prose: `lodging`, `carpool`, `rental-car`, `airport-transfer`, `other`. It is a
+multi-select — the case the feature exists for is one post offering a spare bed
+*and* two seats in the car, which previously could only be said in the
+description where nothing could filter or label it.
+
+- **`post_share_types` is a join table, not a column on `posts`.** That is what
+  makes "both" representable. The `/search?share=` clause is
+  `posts.id IN (SELECT post_id …)` — membership, so a post offering two things
+  answers to a filter on either, and it cannot return the post twice the way a
+  JOIN would.
+- **`setShareTypesForPost()` replaces the set; `tagConference()` only adds.**
+  The difference is deliberate and is the subtlest thing in the feature:
+  unchecked boxes submit *nothing*, so an add-only write makes removing a share
+  type look like it worked and silently do nothing. The `DELETE` runs
+  unconditionally, including when no slugs were submitted, and the whole thing
+  goes through `batch()` so a post is never left cleared-but-not-rewritten.
+- **The picker is on the edit form, not only on create.** This is the direct
+  lesson of the subject-tag bug still in the backlog: subjects can only be set
+  while creating a *new* conference, so every conference that predates the
+  feature is permanently untaggable and `/search?tag=` finds nothing on
+  production. Every post can be typed from `/post/:id/edit` whenever it was
+  written, so share types have no equivalent dead population.
+- **`renderShareTypePicker()` returns `string | null`, and the two callers treat
+  null differently on purpose.** The create fragment degrades to no picker (the
+  field is optional and nothing is saved yet); the edit form returns
+  `errorPage()`, because its write is replace-all and rendering the form without
+  its checkboxes would make the next save wipe the post's existing types.
+- **Checkboxes, not `<select multiple>`.** The subject picker beside it is a
+  multi-select with a "hold Ctrl" hint, and that hint is the tell: it hides
+  multi-selection behind a keyboard convention, on the one form whose whole
+  point is that you may pick more than one.
+- **`sort_order` on `share_types`.** `tags` orders by name; this list cannot,
+  because 'Other' has to come last and alphabetical puts it in the middle.
+- **`handleMyPosts` moved to its own module.** Adding badges pushed `posts.ts`
+  to 334 lines, over `test/route-modules.test.ts`'s 320 bound. The bound's own
+  failure message says to split rather than raise the number, and the seam it
+  asks for was already there: everything left in `posts.ts` mutates a post,
+  while `/my-posts` renders a listing like `/search`. Pure move, `posts.ts` is
+  now 269.
+- **Cover is `test/share-types.test.ts` (17 tests).** Checked against mutation:
+  making the write add-only fails the two replace-semantics tests, dropping the
+  curated-list filter fails two more, and an exclusive-match search clause fails
+  the multi-type filter tests. Verified end to end against `wrangler dev` as
+  well — badges on `/search` and `/post/:id`, `?share=carpool` returning the
+  multi-type post and excluding the untyped one.
+
+**Open:** the conference page (`/conference/:slug`) lists posts through
+`listPostsForConference()` and does not show badges — it selects the narrow
+`Post` type and adding them is a widening that page does not otherwise need.
+Search, `/my-posts` and the post page all show them.
 
 ---
 
@@ -315,7 +425,6 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Worker pages are inconsistent about `description` / `canonicalUrl`.** `renderShell()` omits the meta and canonical tags when a handler passes nothing, which is the case for `/search`, `/my-posts` and the edit/delete/report pages. Task 4 fixed the shell and the nine static pages; this is the remaining half, and it is per-handler content rather than shell shape.
 - **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
 - **`www.researchroomies.com` returns 522 for every path.** Only the apex is bound: `[[routes]]` in `wrangler.toml` has `pattern = "researchroomies.com"` with no `www` record or redirect. Found while diagnosing the search report; unrelated to search, but any inbound `www` link is currently dead.
-- **Production `tags` drift from `db/schema.sql`.** Prod serves 5 tags with short slugs (`bio`, `chem`, `cs`, `math`, `physics`); the schema seeds 12 with long ones (`biology`, `chemistry`, `computer-science`, …). Re-running `db/schema.sql` against prod would *add* the 12 rather than reconcile, leaving a duplicated subject list. Decide which slug set is canonical and migrate before re-running the seed.
 - **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users.
 - **The homepage's featured-conference list is still HTMX-loaded.** `templates/pages/index.njk` fetches `/api/featured-conferences` on load, so crawlers see the homepage copy but none of the conference links. Smaller than the `/post/:id` case just fixed — the page has real content of its own and the same conferences are reachable from `/search` and `/subject/:slug` — but it is the last place where indexable links exist only after JS runs. Fixing it means either server-rendering `/` (it is currently a static asset) or accepting the gap.
 - **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `renderPostDetail()` with `handlePostPage` and now sits in the same file (`src/routes/post-detail.ts`), so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler from `post-detail.ts`, its entry in `ROUTES` (`src/routes.ts`), and the row in the AGENTS.md route table. `test/assets.test.ts` and `test/route-modules.test.ts` both read `ROUTES`, so nothing else needs updating — but remove it from *both* places or the latter fails on a handler exported and never registered.
@@ -338,6 +447,19 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **One page shell: `renderShell()` in `src/lib/shell.mjs`.** It is the only definition of the doctype, `<head>`, nav and footer. `renderFullPage()` calls it for Worker pages; `scripts/gen-layout.mjs` calls it during `npm run build` to *generate* `templates/layouts/base.njk` for Eleventy. Edit the chrome there and nowhere else — `base.njk` carries a `{# GENERATED FILE #}` banner and `test/shell.test.ts` renders both sides and diffs them byte for byte, so a hand-edited layout or a stale committed one fails the suite instead of drifting quietly.
 - **One response path: `src/lib/response.ts`.** Never hand-build `new Response(html, { headers })`. `pageResponse()` for Worker pages, `fragmentResponse()` for `/api/components/*`, and `notFoundPage()` / `forbiddenPage()` / `errorPage()` for failures. `opts.cache` is a closed union defaulting to `'private'`; `errorPage()` takes no argument so an exception message cannot reach the client. Bare-text 4xx/405s, redirects and the two JSON endpoints in `auth.ts` are still plain `new Response` on purpose — converting them would change the wire format, and their shapes are Task 2's subject.
 - **Routes live in `src/routes.ts`, not `index.ts`.** Add a `{ method, path, handler }` entry to `ROUTES`, without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`. `test/assets.test.ts` reads `ROUTES` and fails if you forget either.
+- **The database is defined by `migrations/`, and old migrations are immutable.**
+  Adding a subject, renaming a share type, or changing any table means a new
+  numbered file — never an edit to one already applied, because an applied
+  migration will not run again and the edit reaches new databases only. That is
+  precisely how production ended up on five subject slugs while git described
+  twelve. `test/helpers/seed.ts` applies the chain, so the suite fails on a
+  migration that does not produce a working schema.
+- **Share types are post-level and curated.** `src/db/share-types.ts` owns the
+  SQL, `src/lib/share-types.ts` owns the picker/badge/option markup that four
+  callers share. The write replaces rather than adds — see the section above for
+  why that is not an arbitrary difference from `tagConference()`. Any new list
+  page that renders badges should use `listShareTypesForPosts()` (one query per
+  page), not `listShareTypesForPost()` in a loop.
 - **One route module per concern, and none imports another.** The handler goes in the `src/routes/` module that owns its concern; if two modules need the same thing it belongs in `src/lib/` or `src/db/`, never in a sibling and never in a shared `render.ts` — that grab bag is how `api.ts` reached 1,199 lines. Render helpers stay private to the module that uses them, which is why `/post/:id` and `/api/components/post/:id` share `post-detail.ts` rather than splitting across `posts.ts` and `components.ts`. `test/route-modules.test.ts` fails the build on a cross-module import, on a module over 320 lines, or on a handler exported but not registered.
 - **Deployment literals live in `src/lib/config.ts`.** `getConfig(env, request?)` is the only place an origin, TTL, sitekey, Mailgun setting or admin address is defined. The session TTL in particular has exactly one definition feeding both the cookie `Max-Age` and the token `exp` — they were two independent constants agreeing by coincidence, and divergence is a silent logout.
 - **One data path: `src/db/`.** Handlers never touch `env.DB`; they call a named function from the module that owns the table, and every row shape is defined once in `src/db/types.ts`. `test/db-access.test.ts` fails the build on a `DB.prepare` outside `src/db/`, on any `as unknown as` in `src/`, or on a row shape declared next to a query. Type reads with D1's `.first<T>()` / `.all<T>()` generics — the casts they replace are what let `getAllConferences()` claim to return full conferences from a `SELECT id, name`.

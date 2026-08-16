@@ -102,6 +102,31 @@ export interface Tag {
 	name: string;
 }
 
+/**
+ * One of the curated things a post offers to share — lodging, a carpool seat,
+ * a rental car, an airport transfer, or something else.
+ *
+ * A post carries any number of these, including none: every post that predates
+ * the feature has none, and the pickers are optional, so "untyped" is a normal
+ * state rather than a migration gap. Renderers must handle the empty list.
+ */
+export interface ShareType {
+	slug: string;
+	name: string;
+}
+
+/**
+ * A share type carrying the post it belongs to.
+ *
+ * This exists for the one query that reads badges for a whole result page at
+ * once. Fetching them per post would be a query per row — 50 on a full `/search`
+ * page — so `listShareTypesForPosts()` selects them in a single statement and
+ * groups by this column.
+ */
+export interface PostShareType extends ShareType {
+	post_id: number;
+}
+
 /** A user row, as login reads it back. */
 export interface User {
 	id: number;
@@ -168,6 +193,11 @@ export interface SearchFilters {
 	conference?: string;
 	/** An exact tag slug. */
 	tag?: string;
+	/**
+	 * An exact share-type slug. A post matches if it offers this among others,
+	 * so filtering by `carpool` still finds the post that offers a room too.
+	 */
+	share?: string;
 	/** Unix seconds; keeps conferences whose `stop_time` is at or after this. */
 	overlapsFrom?: number | null;
 	/** Unix seconds; keeps conferences whose `start_time` is at or before this. */

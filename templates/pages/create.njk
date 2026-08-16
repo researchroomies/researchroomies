@@ -42,6 +42,8 @@ description: Post a request to share a hotel room, rental car, or other conferen
   <label>Description</label>
   <textarea name="description" rows="6" required></textarea>
 
+  <div id="share-types-container" hx-get="/api/components/share-type-options" hx-trigger="load" hx-swap="innerHTML"></div>
+
   <p class="form-disclaimer">Please make sure you are only posting information that you are comfortable making publicly available. Before arranging anything with another user, read our <a href="/safety" target="_blank">Safety &amp; Scam Awareness Guide</a>.</p>
   <div class="cf-turnstile" data-sitekey="{{ turnstileSiteKey }}"></div>
   <button type="submit">Submit</button>

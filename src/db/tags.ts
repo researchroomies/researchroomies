@@ -2,8 +2,13 @@
  * Every query against `tags` and `conference_tags`.
  *
  * Tags are conference-level and the list is curated: `tags` is seeded from
- * `db/schema.sql` and nothing in the application inserts into it. `tagConference()`
+ * `migrations/` and nothing in the application inserts into it. `tagConference()`
  * is what keeps that true — see its doc comment.
+ *
+ * Changing the list means writing a new migration, never editing an old one.
+ * `0002_canonical_subject_slugs.sql` exists because that rule did not: the seed
+ * was edited in place from five slugs to twelve, which changed new databases and
+ * silently left production on the old five.
  */
 
 import type { ConferenceWithPostCount, Tag } from './types';
