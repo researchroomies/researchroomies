@@ -103,6 +103,19 @@ export interface Tag {
 }
 
 /**
+ * A subject tag carrying the conference it is attached to.
+ *
+ * The sibling of `PostShareType`, and it exists for the same reason: the
+ * all-conferences page needs every conference's subjects at once, and reading
+ * them with `listTagsForConference()` per row would be a query per conference.
+ * `listTagsForConferences()` selects them in one statement and groups by this
+ * column.
+ */
+export interface ConferenceTag extends Tag {
+	conference_id: number;
+}
+
+/**
  * One of the curated things a post offers to share — lodging, a carpool seat,
  * a rental car, an airport transfer, or something else.
  *

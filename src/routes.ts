@@ -1,5 +1,5 @@
 import { Router, type Handler } from './lib/router';
-import { handleFeaturedConferences, handleConferencePage } from './routes/conferences';
+import { handleFeaturedConferences, handleAllConferences, handleConferencePage } from './routes/conferences';
 import { handleSubjectPage } from './routes/subjects';
 import { handleSearch } from './routes/search';
 import {
@@ -57,6 +57,10 @@ export const ROUTES: RouteDefinition[] = [
 	{ method: 'POST', path: '/api/message/send', handler: handleMessageSend },
 
 	// Worker-rendered pages
+	// Note the singular/plural pair: /conferences is the index, /conference/:slug
+	// is one conference. They do not overlap — the wildcard that claims the
+	// second in wrangler.toml is "/conference/*", which requires the slash.
+	{ method: 'GET', path: '/conferences', handler: handleAllConferences },
 	{ method: 'GET', path: '/conference/:slug', handler: handleConferencePage },
 	{ method: 'GET', path: '/subject/:slug', handler: handleSubjectPage },
 	{ method: 'GET', path: '/post/:id', handler: handlePostPage },

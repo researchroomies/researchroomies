@@ -41,6 +41,10 @@ run_worker_first = [
   "/api/*",
   "/search",
   "/my-posts",
+  # The index, not a conference. Rules are anchored, so this is not covered by
+  # "/conference/*" — that one requires the slash — and it does not conflict
+  # with it either, for the same reason.
+  "/conferences",
   "/conference/*",
   "/subject/*",
   "/post/*",

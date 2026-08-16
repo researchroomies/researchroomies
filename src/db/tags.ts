@@ -11,7 +11,7 @@
  * silently left production on the old five.
  */
 
-import type { ConferenceWithPostCount, Tag } from './types';
+import type { ConferenceTag, ConferenceWithPostCount, Tag } from './types';
 
 /** The curated subject list, alphabetical — the nav and every subject picker. */
 export async function listTags(env: Env): Promise<Tag[]> {
@@ -38,6 +38,47 @@ export async function listTagsForConference(env: Env, conferenceId: number): Pro
 		.bind(conferenceId)
 		.all<Tag>();
 	return results ?? [];
+}
+
+/**
+ * The subjects of each of several conferences, in one query.
+ *
+ * The `/conferences` index groups the whole table by subject, so it needs this
+ * for every conference at once; `listTagsForConference()` in a loop would be a
+ * query per row. The same shape as `listShareTypesForPosts()`, for the same
+ * reason.
+ *
+ * Conferences with no subjects are simply absent from the map rather than
+ * present with an empty array — callers must treat a missing key as "untagged",
+ * which on production is most of the table (subjects can only be set while
+ * creating a conference, so everything older can never be tagged).
+ */
+export async function listTagsForConferences(env: Env, conferenceIds: number[]): Promise<Map<number, Tag[]>> {
+	const grouped = new Map<number, Tag[]>();
+	if (conferenceIds.length === 0) return grouped;
+
+	// The ids come from rows this request already read, but they are still bound
+	// rather than interpolated — the placeholder count is the only thing the
+	// array length is allowed to decide.
+	const placeholders = conferenceIds.map(() => '?').join(', ');
+	const { results } = await env.DB.prepare(
+		`
+		SELECT conference_tags.conference_id, tags.slug, tags.name
+		FROM conference_tags
+		JOIN tags ON conference_tags.tag_slug = tags.slug
+		WHERE conference_tags.conference_id IN (${placeholders})
+		ORDER BY tags.name ASC
+	`,
+	)
+		.bind(...conferenceIds)
+		.all<ConferenceTag>();
+
+	for (const row of results ?? []) {
+		const existing = grouped.get(row.conference_id);
+		if (existing) existing.push({ slug: row.slug, name: row.name });
+		else grouped.set(row.conference_id, [{ slug: row.slug, name: row.name }]);
+	}
+	return grouped;
 }
 
 /**

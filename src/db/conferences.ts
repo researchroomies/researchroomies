@@ -13,7 +13,13 @@
  * than papered over; see the backlog in CLAUDE.md.
  */
 
-import type { Conference, ConferenceListing, ConferenceSummary, NewConference } from './types';
+import type {
+	Conference,
+	ConferenceListing,
+	ConferenceSummary,
+	ConferenceWithPostCount,
+	NewConference,
+} from './types';
 
 /** Every conference's page lives at /conference/:slug. */
 export async function getConferenceBySlug(env: Env, slug: string): Promise<Conference | null> {
@@ -57,6 +63,39 @@ export async function listFeaturedConferences(env: Env): Promise<ConferenceListi
 		LIMIT 10
 	`,
 	).all<ConferenceListing>();
+	return results ?? [];
+}
+
+/**
+ * Every conference, each with how many posts it has — the `/conferences` index.
+ *
+ * Deliberately unfiltered and unlimited: this is the page whose whole job is to
+ * be the complete list, so a `LIMIT` here would make it quietly lie. The table
+ * is small enough that this is one cheap scan; if it ever is not, the fix is
+ * pagination in the handler, not a silent cap in the query.
+ *
+ * `start_time ASC` matches `listConferencesForTag()`, so a conference sits in
+ * the same position on `/conferences` as it does on `/subject/:slug`. Note that
+ * this puts finished conferences at the top — see the note on `handleAllConferences`.
+ *
+ * The subjects are NOT joined in here. Adding `conference_tags` to this query
+ * would fan the rows out one per (conference, subject) pair and multiply
+ * `COUNT(posts.id)` by the number of subjects; the grouping is done from
+ * `listTagsForConferences()` instead, which is one further query rather than one
+ * per row.
+ */
+export async function listAllConferences(env: Env): Promise<ConferenceWithPostCount[]> {
+	const { results } = await env.DB.prepare(
+		`
+		SELECT conferences.id, conferences.name, conferences.slug,
+		       conferences.location_address, conferences.start_time, conferences.stop_time,
+		       COUNT(posts.id) AS post_count
+		FROM conferences
+		LEFT JOIN posts ON posts.conference_id = conferences.id
+		GROUP BY conferences.id
+		ORDER BY conferences.start_time ASC, conferences.name ASC
+	`,
+	).all<ConferenceWithPostCount>();
 	return results ?? [];
 }
 

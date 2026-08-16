@@ -10,7 +10,7 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 - `src/index.ts` – Worker entry point: fetch handler, trailing-slash redirect, asset fallthrough. ~39 lines, no route list
 - `src/routes.ts` – the `ROUTES` table + `createRouter()`; the single declaration of what the Worker owns
 - `src/routes/` – one module per concern, none importing another:
-  - `conferences.ts` – `/conference/:slug` + the featured-list fragment
+  - `conferences.ts` – `/conferences`, `/conference/:slug` + the featured-list fragment
   - `subjects.ts` – `/subject/:slug`
   - `search.ts` – `/search`
   - `components.ts` – the `/api/components/*` HTMX fragments
@@ -137,11 +137,95 @@ Search, `/my-posts` and the post page all show them.
 
 ---
 
+## The all-conferences index, 2026-08-16
+
+`GET /conferences` is every conference in the database, grouped by subject —
+the first page that answers "what is on here?" without already knowing a
+conference name or a subject slug. `handleAllConferences` lives in
+`src/routes/conferences.ts` beside the singular page, which all three conference
+browsing surfaces now share.
+
+**That module is at 313 lines against `test/route-modules.test.ts`'s 320-line
+bound** — seven lines of headroom, so the next addition to it will fail the
+suite. It is not split now because it is not yet over and the seam is weak: an
+index, a detail page and a featured fragment are one concern in a way that
+`/my-posts` and post authoring were not. When it does go over, split it the way
+`my-posts.ts` was split — most likely `/conferences` and its grouping out to
+their own module — rather than raising the number.
+
+**Nothing links to it yet.** That is deliberate and was the request: a redesign
+is coming and the navigation is its problem. The page is registered, reachable
+and indexable in the meantime.
+
+- **A conference with two subjects appears under both.** Subjects are a
+  many-to-many, so one bucket per conference would mean inventing a "primary"
+  subject the data does not have, and would hide a joint bio/CS conference from
+  one of the two audiences looking for it. The page is a browse index, not a
+  count of conferences — the intro line says so, because the total and the
+  number of listed rows deliberately disagree.
+- **Untagged conferences get a trailing "No subject yet" group.** This is the
+  decision the page turns on: on production almost nothing is tagged (subjects
+  can only be set while creating a conference, so everything older is
+  permanently untaggable — see the backlog), and a strict grouping would render
+  a nearly empty page against the live database while looking correct in tests.
+  Last, so the page does not lead with the gap.
+- **Empty subjects are omitted**, rather than rendered as twelve empty headings.
+  The nav already lists every subject; this page shows what is actually there.
+- **`tag: null` for the untagged group, not a synthetic tag row.** A made-up
+  slug would render as a heading link to a `/subject/:slug` that 404s.
+- **Two queries regardless of size**, `listAllConferences()` then
+  `listTagsForConferences()` — the same shape as `listShareTypesForPosts()` and
+  for the same reason. Reading subjects per conference would be a query per row.
+- **The subjects are deliberately not joined into the counting query.** Adding
+  `conference_tags` to it fans the rows out one per (conference, subject) pair
+  and multiplies `COUNT(posts.id)` by the number of subjects — a conference with
+  three subjects and three posts reports nine, which is a plausible-looking
+  number rather than an obvious fault. That is the mutation the post-count test
+  exists for.
+- **`listAllConferences()` has no `LIMIT`,** unlike `listFeaturedConferences()`.
+  This is the page whose whole job is to be the complete list, so a cap would
+  make it quietly lie; if the table outgrows one scan the fix is pagination in
+  the handler, not a silent cap in the query.
+- **`renderIndexItem()` is a near-twin of the list item `/subject/:slug`
+  renders, and stays duplicated.** A two-line template shared by two pages is
+  not worth the cross-module import the route-module rule bans.
+- **`/conferences` and `/conference/*` do not collide.** `run_worker_first`
+  rules are anchored at both ends, and the wildcard requires the slash, so the
+  plural index is neither covered by the singular rule nor in conflict with it.
+  It is listed separately in `wrangler.toml`; `test/assets.test.ts` checks that
+  automatically from `ROUTES`.
+
+**Ordering carries an inherited wart.** Conferences are sorted `start_time ASC`
+to match `listConferencesForTag()`, which puts *finished* conferences at the top.
+That is the sibling page's existing behaviour rather than a choice made here, and
+changing it belongs in both queries at once so the two pages cannot disagree —
+worth folding into the redesign.
+
+**Cover is `test/all-conferences.test.ts` (15 tests).** Checked against
+mutation: fanning the count query out over `conference_tags` fails the
+post-count test, dropping the untagged group fails two, grouping under only a
+conference's first subject fails two, and neutering the group comparator fails
+the ordering test. That last one initially passed under mutation — the seeded
+conference names happened to sort in the same order as their subjects, so
+insertion order was already alphabetical and the test proved nothing. It now
+sets explicit start dates that make the groups arrive in reverse.
+
+**Verified end to end against `wrangler dev`,** which is the part the handler
+tests cannot reach: `/conferences` returns 200 through the real asset router
+rather than being shadowed, the joint conference renders under both of its
+subjects, the untagged conference lands in the trailing group, counts read
+`1 post` / `0 posts`, `/conferences/` 308s to the slashless form, and
+`/conference/:slug` still resolves and still 404s on a bad slug.
+
+---
+
 ## Current State — updated 2026-08-12
 
 Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **All six refactor tasks have landed** (see `docs/refactor/`, now closed).
 
-Suite is **373 tests across 12 files**, up from 21 across 3 before the refactor. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Suite is **436 tests across 15 files** (373 across 12 at the close of the
+refactor; share types and the all-conferences index added the rest), up from 21
+across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Trailing-slash 404 on every Worker route — fixed 2026-08-10
 
@@ -425,7 +509,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **Worker pages are inconsistent about `description` / `canonicalUrl`.** `renderShell()` omits the meta and canonical tags when a handler passes nothing, which is the case for `/search`, `/my-posts` and the edit/delete/report pages. Task 4 fixed the shell and the nine static pages; this is the remaining half, and it is per-handler content rather than shell shape.
 - **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
 - **`www.researchroomies.com` returns 522 for every path.** Only the apex is bound: `[[routes]]` in `wrangler.toml` has `pattern = "researchroomies.com"` with no `www` record or redirect. Found while diagnosing the search report; unrelated to search, but any inbound `www` link is currently dead.
-- **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users.
+- **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users. **`/conferences` now makes the size of this visible** — everything untaggable lands in its trailing "No subject yet" group, so that group's length is a direct read on how much of the table the subject filters cannot see.
 - **The homepage's featured-conference list is still HTMX-loaded.** `templates/pages/index.njk` fetches `/api/featured-conferences` on load, so crawlers see the homepage copy but none of the conference links. Smaller than the `/post/:id` case just fixed — the page has real content of its own and the same conferences are reachable from `/search` and `/subject/:slug` — but it is the last place where indexable links exist only after JS runs. Fixing it means either server-rendering `/` (it is currently a static asset) or accepting the gap.
 - **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `renderPostDetail()` with `handlePostPage` and now sits in the same file (`src/routes/post-detail.ts`), so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler from `post-detail.ts`, its entry in `ROUTES` (`src/routes.ts`), and the row in the AGENTS.md route table. `test/assets.test.ts` and `test/route-modules.test.ts` both read `ROUTES`, so nothing else needs updating — but remove it from *both* places or the latter fails on a handler exported and never registered.
 - **Post creation is not atomic (known limit).** Creating a post against a *new* conference is three separate writes: conference insert, tag batch, post insert. If the post insert fails, the conference survives as an orphan and holds its slug, so the user's retry gets `-2` appended to it. `batch()` cannot fix this — the post insert needs the id the conference insert `RETURNING`s, and `batch()` has no way to pipe one statement's output into the next. A real fix needs either a different API shape or a periodic sweep of conferences with zero posts. Recorded in the `src/db/conferences.ts` module doc, with a pointer from the `conferenceId === "new"` branch in `handleCreatePost`.
