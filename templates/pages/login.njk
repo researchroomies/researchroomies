@@ -4,27 +4,24 @@ description: Log in to ResearchRoomies with a single-use magic link sent to your
 ---
 {% extends "base.njk" %}
 
-{% block head %}
-<style>
-    .login-container { max-width: 400px; margin: 40px auto; padding: 20px; text-align: center; }
-    .login-container input { width: 100%; padding: 10px; margin-bottom: 20px; box-sizing: border-box; }
-    .login-container button { padding: 10px 20px; background: #0070f3; color: white; border: none; cursor: pointer; border-radius: 4px; }
-    .login-container button:disabled { background: #ccc; }
-    .error { color: red; margin-top: 10px; }
-    .success { color: green; margin-top: 10px; }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="login-container">
-    <h2>Login</h2>
-    <form id="loginForm">
-        <input type="email" id="email" name="email" placeholder="Enter your email" required />
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Sign in</h1>
+            <p class="page-lede">No password. We email you a single-use link.</p>
+        </div>
+    </div>
+    <form id="loginForm" class="form-stack">
+        <div class="field">
+            <label for="email">Institutional email</label>
+            <input class="input" type="email" id="email" name="email" placeholder="you@university.edu" required />
+        </div>
         <div class="cf-turnstile" data-sitekey="{{ turnstileSiteKey }}"></div>
-        <br/>
-        <button type="submit" id="submitBtn">Send Magic Link</button>
+        <button class="btn btn-primary btn-block" type="submit" id="submitBtn">Send magic link</button>
     </form>
     <div id="message"></div>
+    <p class="field-hint">Signing in lets you post, reply to a post, and report one. Reading the site needs no account.</p>
 </div>
 
 <script>

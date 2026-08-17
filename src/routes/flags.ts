@@ -22,23 +22,34 @@ function renderReportForm(env: Env, post: PostDetail): string {
   ).join("");
 
   return `
-    <div class="site-page">
-      <h1>Report Post</h1>
-      <p>You are reporting: <strong>${escapeHtml(post.title)}</strong>${
-        post.conference_name
-          ? ` &middot; ${escapeHtml(post.conference_name)}`
-          : ""
-      }</p>
-      <form method="POST" action="/post/${post.id}/report">
-        <label for="reason">Reason</label>
-        <select name="reason" id="reason" required>
-          ${optionsHtml}
-        </select>
-        <label for="details">Additional details (optional)</label>
-        <textarea name="details" id="details" rows="5"></textarea>
-        <p class="form-disclaimer">Not sure whether something is a scam? Our <a href="/safety" target="_blank">Safety &amp; Scam Awareness Guide</a> lists the warning signs.</p>
+    <div class="form-page">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Report post</h1>
+          <p class="page-lede">You are reporting <strong>${escapeHtml(post.title)}</strong>${
+            post.conference_name
+              ? ` &middot; ${escapeHtml(post.conference_name)}`
+              : ""
+          }</p>
+        </div>
+      </div>
+      <form method="POST" action="/post/${post.id}/report" class="form-stack">
+        <div class="field">
+          <label for="reason">Reason</label>
+          <select class="input" name="reason" id="reason" required>
+            ${optionsHtml}
+          </select>
+        </div>
+        <div class="field">
+          <label for="details">Additional details (optional)</label>
+          <textarea class="input" name="details" id="details" rows="5"></textarea>
+          <p class="form-disclaimer">Not sure whether something is a scam? Our <a href="/safety" target="_blank">Safety &amp; Scam Awareness Guide</a> lists the warning signs.</p>
+        </div>
         ${turnstileWidget(env)}
-        <button type="submit">Submit Report</button>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Submit report</button>
+          <a href="/post/${post.id}" class="btn btn-ghost">Cancel</a>
+        </div>
       </form>
     </div>
   `;
@@ -157,14 +168,14 @@ export async function handleReportSubmit(
 
     const content = `
       <div class="site-page">
-        <h1>Report Received</h1>
+        <h1>Report received</h1>
         <p>Thanks &mdash; we've received your report. Our team will review it shortly.</p>
         <p>If you were in contact with this user, our <a href="/safety">Safety &amp; Scam Awareness Guide</a> covers what to do next.</p>
-        <p><a href="/post/${post.id}">Back to post</a></p>
+        <p><a href="/post/${post.id}" class="btn btn-secondary">Back to post</a></p>
       </div>
     `;
 
-    return pageResponse("Report Received", content, { cache: "none" });
+    return pageResponse("Report received", content, { cache: "none" });
   } catch (error) {
     console.error("Error submitting report:", error);
     return errorPage();

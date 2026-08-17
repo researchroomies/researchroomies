@@ -43,31 +43,55 @@ export async function handleMyPosts(
       for (const post of results) {
         postsHtml += `
           <li class="my-post-item">
-            <h3><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
-            ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
-            <p class="conference-info">
-              <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a>
-              &middot; ${formatDateRange(post.start_time, post.stop_time)}
-            </p>
-            <p class="created-info">Posted on ${formatDate(post.created_at)}</p>
-            <p class="post-actions">
-              <a href="/post/${post.id}/edit" class="nav-link">Edit</a>
-              <a href="/post/${post.id}/delete" class="nav-link danger-link">Delete</a>
-            </p>
+            <div>
+              <h3><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+              ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
+              <p class="conference-info">
+                <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a>
+                <span class="tnum">${formatDateRange(post.start_time, post.stop_time)}</span>
+                <span class="created-info">Posted ${formatDate(post.created_at)}</span>
+              </p>
+            </div>
+            <div class="my-post-actions">
+              <a href="/post/${post.id}/edit">Edit</a>
+              <a href="/post/${post.id}/delete" class="danger-link">Delete</a>
+            </div>
           </li>
         `;
       }
       postsHtml += `</ul>`;
     }
 
+    const upcoming = results.filter(
+      (post) => post.stop_time * 1000 >= Date.now(),
+    ).length;
+
     const content = `
-      <div class="site-page">
-        <h1>My Posts</h1>
-        ${postsHtml}
+      <div class="with-aside">
+        <div>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">My posts</h1>
+              <p class="page-lede tnum">${results.length} post${results.length === 1 ? "" : "s"} · ${upcoming} for upcoming conferences</p>
+            </div>
+            <a href="/create" class="btn btn-primary">New post</a>
+          </div>
+          ${postsHtml}
+        </div>
+        <aside class="aside-stack">
+          <div class="aside-box">
+            <h4>Inquiries</h4>
+            <p class="aside-note">Messages come straight to your inbox — <span class="nowrap">${escapeHtml(user.email)}</span> — and you reply by email, not through the site.</p>
+          </div>
+          <div class="aside-section">
+            <h6>Editing a post</h6>
+            <p class="aside-note">You can change a post's title, description and what it offers to share at any time. Deleting one is permanent.</p>
+          </div>
+        </aside>
       </div>
     `;
 
-    return pageResponse("My Posts", content);
+    return pageResponse("My posts", content);
   } catch (error) {
     console.error("Error fetching my posts:", error);
     return errorPage();

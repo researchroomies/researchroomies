@@ -1,7 +1,12 @@
 import { sessionUserId } from "../lib/session";
 import { optionalUser } from "../lib/guards";
 import { turnstileWidget } from "../lib/turnstile";
-import { escapeHtml, summarize } from "../lib/html";
+import {
+  escapeHtml,
+  formatDate,
+  formatDateRange,
+  summarize,
+} from "../lib/html";
 import {
   errorPage,
   fragmentResponse,
@@ -24,26 +29,55 @@ import type { PostDetail, ShareType } from "../db/types";
  * everything here renders for anonymous viewers too.
  */
 
+/** The conference link, dates, location and posting date, as stated facts. */
+function renderFacts(post: PostDetail): string {
+  const location = post.location_address
+    ? `<dt>Location</dt><dd>${escapeHtml(post.location_address)}</dd>`
+    : "";
+
+  return `
+        <dl class="post-facts">
+          <dt>Conference</dt>
+          <dd><a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a></dd>
+          <dt>Dates</dt><dd class="tnum">${formatDateRange(post.start_time, post.stop_time)}</dd>
+          ${location}
+          <dt>Posted</dt><dd class="tnum">${formatDate(post.created_at)}</dd>
+        </dl>`;
+}
+
+/** The inquiry box in the aside: the form for a reader, a prompt for a stranger. */
+function renderInquiry(env: Env, post: PostDetail, isLoggedIn: boolean): string {
+  if (!isLoggedIn) {
+    return `
+          <div class="aside-box">
+            <h4>Send an inquiry</h4>
+            <p class="aside-note">Sign in with your institutional email to message the author. No password — we send a link.</p>
+            <a href="/login" class="btn btn-primary btn-block">Log in to send an inquiry</a>
+          </div>`;
+  }
+
+  return `
+          <div class="aside-box">
+            <h4>Send an inquiry</h4>
+            <p class="aside-note">Say who you are and which part you're interested in. Your email is shared with the author so they can reply.</p>
+            <form action="/api/message/send" method="POST" class="form-stack">
+              <input type="hidden" name="post_id" value="${post.id}" />
+              <div class="field">
+                <label for="inquiry-content">Message</label>
+                <textarea class="input" id="inquiry-content" name="content" rows="5" required></textarea>
+              </div>
+              ${turnstileWidget(env)}
+              <button class="btn btn-primary btn-block" type="submit">Send message</button>
+            </form>
+          </div>`;
+}
+
 function renderPostDetail(
   env: Env,
   post: PostDetail,
   shareTypes: ShareType[],
   viewer: { isLoggedIn: boolean; isAuthor: boolean; sent: boolean },
 ): string {
-  const formHtml = viewer.isLoggedIn
-    ? `
-        <form action="/api/message/send" method="POST">
-          <input type="hidden" name="post_id" value="${post.id}" />
-          <label>Message</label>
-          <textarea name="content" rows="5" required></textarea>
-          ${turnstileWidget(env)}
-          <button type="submit">Send</button>
-        </form>
-    `
-    : `
-        <p>Please <a href="/login">log in</a> to send an inquiry.</p>
-    `;
-
   // Both variants point at the report route; only the label and the target
   // differ. Anonymous, the route 302s to /login and the magic-link callback
   // lands on the homepage rather than back here, so a same-tab click costs the
@@ -56,15 +90,16 @@ function renderPostDetail(
 
   const ownerActions = viewer.isAuthor
     ? `
-        <p class="post-actions">
-          <a href="/post/${post.id}/edit" class="nav-link">Edit</a>
-          <a href="/post/${post.id}/delete" class="nav-link danger-link">Delete</a>
-        </p>
+        <div class="post-actions">
+          <a href="/post/${post.id}/edit" class="btn btn-secondary">Edit post</a>
+          <a href="/post/${post.id}/delete" class="btn btn-ghost danger-link">Delete</a>
+          <span class="post-actions-note">This is your post. <a href="/my-posts">See all your posts</a></span>
+        </div>
       `
     : `
-        <p class="post-actions">
+        <div class="post-actions">
           ${reportAction}
-        </p>
+        </div>
       `;
 
   const sentNotice = viewer.sent
@@ -72,18 +107,23 @@ function renderPostDetail(
     : "";
 
   return `
-      ${sentNotice}
-      <article>
-        <h2>${escapeHtml(post.title)}</h2>
-        ${shareTypeBadges(shareTypes)}
-        <p>${escapeHtml(post.description)}</p>
-        <p><strong>Conference:</strong> <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a></p>
-        ${ownerActions}
-      </article>
-      <section>
-        <h3>Send an Inquiry</h3>
-        ${formHtml}
-      </section>
+      <p class="breadcrumb"><a href="/conferences">Conferences</a> &nbsp;/&nbsp; <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a> &nbsp;/&nbsp; Post</p>
+      <div class="with-aside">
+        <article class="post-body">
+          <h1 class="post-title">${escapeHtml(post.title)}</h1>
+          ${shareTypeBadges(shareTypes)}
+          ${renderFacts(post)}
+          <p>${escapeHtml(post.description)}</p>
+          ${ownerActions}
+        </article>
+        <aside class="aside-stack">
+          ${sentNotice}
+          ${renderInquiry(env, post, viewer.isLoggedIn)}
+          <div class="aside-section">
+            <p class="aside-note">We don't verify or endorse users. Verify institutional affiliation and read the <a href="/safety">Safety &amp; Scam Awareness Guide</a> before you arrange anything.</p>
+          </div>
+        </aside>
+      </div>
     `;
 }
 
@@ -120,11 +160,11 @@ export async function handlePostPage(
     ]);
     const url = new URL(request.url);
 
-    const content = `<div class="site-page">${renderPostDetail(env, post, shareTypes, {
+    const content = renderPostDetail(env, post, shareTypes, {
       isLoggedIn: user !== null,
       isAuthor: user !== null && sessionUserId(user) === post.user_id,
       sent: url.searchParams.get("sent") === "1",
-    })}</div>`;
+    });
 
     // Varies by viewer (author actions, logged-out prompt) — never shared, which
     // is pageResponse()'s default.

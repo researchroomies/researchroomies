@@ -4,28 +4,80 @@ description: Find academics attending the same conference and share hotel rooms,
 ---
 {% extends "base.njk" %}
 {% block content %}
+<div class="home-hero">
+  <div>
+    <h1>Share the room, halve the cost</h1>
+    <p>Find academics heading to the same conference as you. Free, run by two people who got tired of paying full rate.</p>
+  </div>
+  <a href="/create" class="btn btn-primary">Post a request</a>
+</div>
+
+<section>
+  <div class="section-head">
+    <h2>Conferences with open posts</h2>
+    <a href="/conferences" class="section-head-aside">All conferences</a>
+  </div>
+  {# Featured conferences are the largest thing on the page, so they load first
+     and the feed below waits its turn. Both are HTMX fragments because this
+     page is a static Eleventy asset — see the backlog note in CLAUDE.md. #}
+  <div id="featured-conferences"
+       hx-get="/api/featured-conferences"
+       hx-trigger="load">
+    <p class="loading-note">Loading featured conferences…</p>
+  </div>
+</section>
+
+<hr class="hr" />
+
 <div class="home-layout">
   <aside class="sidebar">
-    <form action="/search" method="get" class="search-form">
-      <input type="text" name="q" placeholder="Keywords" />
-      <input type="text" name="conference" placeholder="Conference name" />
-      <select name="tag" hx-get="/api/components/tag-options" hx-trigger="load" hx-swap="innerHTML">
-        <option value="">Subject</option>
-      </select>
-      <input type="date" name="start" />
-      <input type="date" name="end" />
-      <button type="submit">Search</button>
-    </form>
+    <div>
+      <h6>Filter posts</h6>
+      <form action="/search" method="get" class="filter-stack">
+        <div class="field">
+          <label for="home-q">Keywords</label>
+          <input class="input" id="home-q" type="text" name="q" placeholder="Room share, ride from Boston" />
+        </div>
+        <div class="field">
+          <label for="home-conference">Conference</label>
+          <input class="input" id="home-conference" type="text" name="conference" placeholder="Any conference" />
+        </div>
+        <div class="field">
+          <label for="home-tag">Subject</label>
+          <select class="input" id="home-tag" name="tag" hx-get="/api/components/tag-options" hx-trigger="load" hx-swap="innerHTML">
+            <option value="">Any subject</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <div class="field">
+            <label for="home-start">From</label>
+            <input class="input" id="home-start" type="date" name="start" />
+          </div>
+          <div class="field">
+            <label for="home-end">To</label>
+            <input class="input" id="home-end" type="date" name="end" />
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">Search</button>
+      </form>
+    </div>
+    <hr class="hr" />
+    <div>
+      <h6>How it works</h6>
+      <p class="aside-note">Post what you are willing to share, or answer someone who already has. We introduce people by email and step out of the way — read the <a href="/safety">Safety &amp; Scam Awareness Guide</a> before you arrange anything.</p>
+      <a href="/how-it-works" class="btn btn-secondary btn-block">Read the guide</a>
+    </div>
   </aside>
-  <section class="main">
-    <h2>Featured Conferences</h2>
-    <div id="featured-conferences" 
-         hx-get="/api/featured-conferences" 
-         hx-trigger="load"
-         hx-indicator="#loading-indicator">
-      <div id="loading-indicator" class="htmx-indicator">
-        Loading featured conferences...
-      </div>
+
+  <section>
+    <div class="section-head">
+      <h6>Recent posts, all conferences</h6>
+      <span class="section-head-aside">Newest first</span>
+    </div>
+    <div id="recent-posts"
+         hx-get="/api/components/recent-posts"
+         hx-trigger="load">
+      <p class="loading-note">Loading recent posts…</p>
     </div>
   </section>
 </div>

@@ -1,380 +1,1488 @@
-* {
-    margin: 0;
-    padding: 0;
+/* ══════════════════════════════════════════════════════════════════════════
+   ResearchRoomies — Classical.
+
+   Three layers, in this order and no other:
+
+     1. TOKENS      the `:root` block, taken verbatim from the Classical design
+                    system. Nothing below may hard-code a hex, a font name or a
+                    px value a token already carries.
+     2. SYSTEM      the design system's own component classes — .btn, .tag,
+                    .card, .field/.input, .seg, .nav, .hr, .table. Built from
+                    layer 1 only.
+     3. APPLICATION the ResearchRoomies-specific layout: the page chrome, the
+                    post/conference listings, the search filter row, the forms.
+                    Built from layers 1 and 2 only.
+
+   Plain CSS on plain HTML. No framework, no build step, no JavaScript — the
+   only script on the site is HTMX for fragment swaps and the Turnstile widget.
+
+   Direction, from the system's own guidance: color is applied as *stroke*, not
+   as fill. Buttons are outlined, cards are bordered, structure is carried by
+   hairline rules rather than by boxes and shadows. Bold is avoided — the bigger
+   the text, the lighter it sets, so display headings take the normal cut while
+   small interface headings take the semibold token.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────── 1. TOKENS ──── */
+
+:root {
+    --color-bg: #f3f2f2;
+    --color-surface: #eae9e9;
+    --color-text: #201f1d;
+    --color-accent: #b68235;
+    --color-accent-2: #ac803e;
+    --color-divider: color-mix(in srgb, #201f1d 16%, transparent);
+
+    /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
+       same step of any role matches the others in visual value. */
+    --color-neutral-100: #f8f4f4;
+    --color-neutral-200: #eae7e7;
+    --color-neutral-300: #d7d3d3;
+    --color-neutral-400: #bab6b6;
+    --color-neutral-500: #9b9797;
+    --color-neutral-600: #7d7979;
+    --color-neutral-700: #605d5d;
+    --color-neutral-800: #444141;
+    --color-neutral-900: #2d2b2b;
+
+    --color-accent-100: #fff3e4;
+    --color-accent-200: #ffe3bf;
+    --color-accent-300: #facb8d;
+    --color-accent-400: #e1ad66;
+    --color-accent-500: #c28d41;
+    --color-accent-600: #a06f24;
+    --color-accent-700: #7d5411;
+    --color-accent-800: #5a3b0a;
+    --color-accent-900: #3a270d;
+
+    --font-heading: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+    /* Semibold is the ceiling for interface headings — they need the weight at
+       small sizes. Display text goes lighter still; see .page-title. */
+    --font-heading-weight: 600;
+    --font-body: "Lora", Georgia, "Times New Roman", serif;
+    --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+    --space-1: 4.6px;
+    --space-2: 9.2px;
+    --space-3: 13.8px;
+    --space-4: 18.4px;
+    --space-6: 27.6px;
+    --space-8: 36.8px;
+
+    --radius-sm: 2px;
+    --radius-md: 4px;
+    --radius-lg: 7px;
+
+    /* Elevation is a whisper here: soft ink-tinted shadows on a light ground. */
+    --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+    --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+    --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+
+    /* Application: the one measure every page is laid out against. */
+    --page-width: 1080px;
+    --page-gutter: var(--space-8);
+}
+
+/* ─────────────────────────────────────────────────────────── 2. SYSTEM ──── */
+
+*,
+*::before,
+*::after {
     box-sizing: border-box;
 }
 
 body {
-    font-family: sans-serif;
-    line-height: 1.6;
-    background-color: #fafafa;
-    color: #222;
-    padding: 1rem;
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
 }
 
-header,
-footer {
-    background-color: #f0f0f0;
-    padding: 1rem;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    margin: 0 0 var(--space-2);
 }
 
-h1 a {
+h1 {
+    font-size: 42px;
+}
+h2 {
+    font-size: 32px;
+}
+h3 {
+    font-size: 25px;
+}
+h4 {
+    font-size: 20px;
+}
+h5 {
+    font-size: 16px;
+}
+h6 {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+p {
+    margin: 0 0 var(--space-3);
+}
+
+a {
+    color: var(--color-accent);
+    text-underline-offset: 3px;
+}
+
+img {
+    display: block;
+    max-width: 100%;
+}
+
+code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+:focus {
+    outline: none;
+}
+
+:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+::selection {
+    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.text-muted {
+    color: var(--color-neutral-700);
+}
+
+/* Figures — numbers set tabular wherever they stand as figures or columns.
+   Running prose keeps its text figures: Lora's tabular feature also widens its
+   word spaces, which would loosen the paragraphs. */
+.tnum {
+    font-variant-numeric: tabular-nums;
+}
+
+.nowrap {
+    white-space: nowrap;
+}
+
+/* — rules — */
+.hr {
+    height: 1px;
+    border: 0;
+    margin: var(--space-4) 0;
+    background: var(--color-divider);
+}
+
+/* — buttons — */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
     text-decoration: none;
-    color: #007acc;
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 14px;
+    line-height: 1.2;
+    color: var(--color-text);
+    background: transparent;
+    border: 1px solid transparent;
+    padding: var(--space-2) calc(var(--space-3) * 1.2);
+    border-radius: var(--radius-md);
 }
 
-nav {
-    margin-top: 0.5rem;
-    display: flex;
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+}
+.btn-primary:hover {
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.btn-primary:active {
+    background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.btn-secondary {
+    border-color: var(--color-divider);
+}
+.btn-secondary:hover {
+    background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.btn-secondary:active {
+    background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.btn-ghost {
+    color: var(--color-accent);
+    padding-inline: var(--space-1);
+}
+.btn-ghost:hover {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.btn-ghost:active {
+    background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+.btn-block {
+    width: 100%;
+    margin-top: var(--space-2);
+}
+
+/* The one filled control on the site, and it is filled because deleting
+   something permanently should not look like every other outlined action. */
+.btn-danger {
+    color: var(--color-neutral-100);
+    background: #8c1d18;
+    border-color: #8c1d18;
+}
+.btn-danger:hover {
+    background: #6f1713;
+    border-color: #6f1713;
+}
+
+/* — forms — */
+.field > label,
+.field > legend {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--color-neutral-700);
+}
+
+.input {
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--color-text);
+    caret-color: var(--color-accent);
+    background: transparent;
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+}
+.input:hover {
+    border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+.input:focus-visible {
+    border-color: var(--color-accent);
+    outline-offset: 0;
+}
+.input:disabled,
+.input[readonly] {
+    color: var(--color-neutral-700);
+    background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+textarea.input {
+    min-height: 90px;
+    resize: vertical;
+}
+
+select.input {
+    /* Native selects ignore the transparent background on some platforms; the
+       explicit ground keeps them matching the text inputs beside them. */
+    background-color: var(--color-bg);
+}
+
+/* Checkboxes and radios are native and accent-tinted rather than rebuilt. */
+input[type="checkbox"],
+input[type="radio"] {
+    accent-color: var(--color-accent);
+    width: auto;
+    min-height: 0;
+    margin: 0;
+}
+
+/* — segmented control — */
+.seg {
+    display: inline-flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.seg-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    line-height: 1.2;
+    cursor: pointer;
+    color: inherit;
+    text-decoration: none;
+}
+.seg-opt + .seg-opt {
+    border-left: 1px solid var(--color-divider);
+}
+.seg-opt:hover {
+    background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.seg-opt[aria-current="page"] {
+    color: var(--color-accent);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+.seg-count {
+    color: var(--color-neutral-600);
+    font-variant-numeric: tabular-nums;
+}
+
+/* — cards — */
+.card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: transparent;
+    border: 1px solid var(--color-divider);
+}
+
+.card-kicker {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+}
+
+.card-title {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 17px;
+    line-height: 1.2;
+}
+
+.card-body {
+    margin: 0;
+    font-size: 13px;
+    opacity: 0.8;
+    flex: 1;
+}
+
+.card-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--color-neutral-700);
+}
+
+/* — tags — */
+.tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    padding: 3px 10px;
+    border-radius: calc(var(--radius-md) * 0.75);
+    white-space: nowrap;
+}
+
+.tag-accent {
+    background: var(--color-accent-100);
+    color: var(--color-accent-800);
+}
+.tag-neutral {
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-800);
+}
+.tag-outline {
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent);
+    text-decoration: none;
+}
+a.tag-outline:hover {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+/* — navigation — */
+.nav {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+}
+
+.nav-brand {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    margin-right: auto;
+    color: inherit;
+    text-decoration: none;
+}
+
+.nav a {
+    color: inherit;
+    text-decoration: none;
+    font-size: 14px;
+}
+.nav a:hover,
+.nav a[aria-current="page"] {
+    color: var(--color-accent);
+}
+
+/* — tables — */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.table th {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-neutral-700);
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--color-divider);
+}
+.table td {
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--color-divider);
+}
+
+/* Wide content scrolls inside its own box; the page body never scrolls
+   sideways. */
+.table-scroll {
+    overflow-x: auto;
+    margin-bottom: var(--space-3);
+}
+.table-scroll .table {
+    min-width: 560px;
+}
+
+/* ────────────────────────────────────────────────────── 3. APPLICATION ──── */
+
+/* — page chrome — */
+
+.site-header {
+    border-bottom: 1px solid var(--color-divider);
+}
+
+.site-header > .nav {
+    max-width: var(--page-width);
+    margin: 0 auto;
+    padding: var(--space-4) var(--page-gutter);
+}
+
+.nav-brand-accent {
+    color: var(--color-accent);
+}
+
+/* The hairline between the site's own sections and the account link. */
+.nav-rule {
+    width: 1px;
+    height: 18px;
+    background: var(--color-divider);
 }
 
 .nav-link {
-    font-weight: bold;
-    color: #007acc;
+    color: inherit;
     text-decoration: none;
 }
 
+/* The subject strip under the nav. Loaded as an HTMX fragment, so it is empty
+   on first paint — the border and padding only appear once it has content. */
+.subject-bar {
+    max-width: var(--page-width);
+    margin: 0 auto;
+    padding: 0 var(--page-gutter);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: 12px;
+}
+
+.subject-bar:has(a) {
+    padding-block: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--color-divider);
+}
+
+.subject-bar-label {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-neutral-600);
+}
+
+.subject-bar:not(:has(a)) .subject-bar-label {
+    display: none;
+}
+
+/* Subject links, in the nav strip and on a conference page alike. */
 .nav-subject {
-    background: #e6f0ff;
-    padding: 0.2rem 0.5rem;
-    border-radius: 0.2rem;
-    font-size: 0.9rem;
-    color: #003d66;
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    padding: 3px 10px;
+    margin-right: var(--space-1);
+    border: 1px solid var(--color-accent);
+    border-radius: calc(var(--radius-md) * 0.75);
+    color: var(--color-accent);
     text-decoration: none;
+    white-space: nowrap;
+}
+.nav-subject:hover {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
-main {
-    margin-top: 2rem;
+.site-main {
+    max-width: var(--page-width);
+    margin: 0 auto;
+    padding: var(--space-8) var(--page-gutter) var(--space-8);
 }
 
 footer {
-    margin-top: 4rem;
-    text-align: center;
-    font-size: 0.9rem;
-    color: #666;
+    border-top: 1px solid var(--color-divider);
 }
 
-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    margin-bottom: 2rem;
-}
-
-input,
-select,
-textarea,
-button {
-    padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 1rem;
-}
-
-button {
-    background-color: #007acc;
-    color: white;
-    border: none;
-    cursor: pointer;
-}
-
-button:hover {
-    background-color: #005fa3;
-}
-
-.post-card {
-    border: 1px solid #ddd;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    background: white;
-}
-
-.sidebar {
-    margin-bottom: 2rem;
-}
-
-.home-layout {
-    display: flex;
-    flex-direction: column;
-}
-
-@media (min-width: 768px) {
-    .home-layout {
-        flex-direction: row;
-        gap: 2rem;
-    }
-    .sidebar {
-        width: 30%;
-    }
-    .main {
-        width: 70%;
-    }
-}
-
-.site-page {
-    max-width: 800px;
+.site-footer {
+    max-width: var(--page-width);
     margin: 0 auto;
-    background: white;
-    padding: 2rem;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    line-height: 1.6;
+    padding: var(--space-6) var(--page-gutter);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-4);
+    font-size: 13px;
+    color: var(--color-neutral-700);
 }
 
-.site-page h1,
-.site-page h2,
-.site-page h3 {
-    margin-bottom: 0.5rem;
-    color: #003d66;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 0.5rem;
-}
-
-.site-page p {
-    margin-bottom: 1rem;
-}
-
-.site-page ul {
-    margin-left: 2rem;
-    margin-bottom: 1rem;
-}
-
-.site-page a {
-    color: #007acc;
+.site-footer a {
+    color: inherit;
     text-decoration: none;
 }
+.site-footer a:hover {
+    color: var(--color-accent);
+}
 
-.site-page a:hover {
+.footer-note {
+    margin-left: auto;
+    max-width: 46ch;
+    text-align: right;
+    font-size: 12px;
+    line-height: 1.6;
+}
+.footer-note a {
+    color: var(--color-accent);
     text-decoration: underline;
 }
 
-/* My Posts page styles */
-.my-posts-list {
-    list-style: none;
-    padding: 0;
-    margin-top: 1rem;
+/* — the page header every Worker-rendered page opens with — */
+
+.page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-6);
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--color-divider);
+    margin-bottom: var(--space-4);
 }
 
-.my-post-item {
-    background: #fafafa;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    padding: 1rem;
-    margin-bottom: 1rem;
+/* Display sizes take the normal cut — the system's rule that the bigger the
+   text, the lighter it sets. */
+.page-title {
+    font-size: 38px;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    margin: 0 0 var(--space-1);
 }
 
-.my-post-item h3 {
-    margin-bottom: 0.5rem;
-    font-size: 1.1rem;
+.page-lede {
+    margin: 0;
+    font-size: 14px;
+    color: var(--color-neutral-700);
+    max-width: 72ch;
 }
 
-.my-post-item h3 a {
-    color: #003d66;
+.breadcrumb {
+    font-size: 12px;
+    color: var(--color-neutral-600);
+    margin: 0 0 var(--space-3);
 }
-
-.my-post-item h3 a:hover {
-    color: #007acc;
+.breadcrumb a {
+    color: inherit;
     text-decoration: none;
 }
-
-.conference-info {
-    color: #666;
-    font-size: 0.9rem;
-    margin-bottom: 0.25rem;
+.breadcrumb a:hover {
+    color: var(--color-accent);
 }
 
-.conference-info a {
-    color: #007acc;
+/* Two-column app pages: content, then a narrow aside. */
+.with-aside {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: var(--space-8);
+    align-items: start;
 }
 
-.created-info {
-    color: #999;
-    font-size: 0.85rem;
-    font-style: italic;
+.aside-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
 }
 
-.empty-state {
-    color: #666;
-    font-size: 1rem;
-    margin-top: 1rem;
-    padding: 1rem;
-    background: #fafafa;
-    border: 1px dashed #ddd;
-    border-radius: 6px;
-    text-align: center;
+.aside-box {
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
 }
 
-.form-notice {
-    background: #fffbea;
-    border: 1px solid #f0c040;
-    border-radius: 4px;
-    padding: 0.6rem 0.8rem;
-    font-size: 0.9rem;
-    color: #7a5800;
-    margin-bottom: 0.75rem;
+.aside-box h4 {
+    margin: 0 0 var(--space-1);
+    font-size: 19px;
 }
 
-.form-disclaimer {
-    font-size: 0.85rem;
-    color: #666;
-    margin-bottom: 0.5rem;
-    font-style: italic;
+.aside-section {
+    border-top: 1px solid var(--color-divider);
+    padding-top: var(--space-3);
 }
 
-.field-hint {
-    font-size: 0.8rem;
-    color: #666;
-    margin-top: -0.4rem;
+.aside-section h6 {
+    margin: 0 0 var(--space-2);
 }
 
-/* Share types: the picker on the create/edit forms, badges everywhere else */
+.aside-note {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--color-neutral-700);
+}
+
+.stacked-links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    font-size: 13px;
+}
+.stacked-links a {
+    color: inherit;
+    text-decoration: none;
+}
+.stacked-links a:hover {
+    color: var(--color-accent);
+}
+
+/* Form pages (edit, delete, report) sit on a narrower measure than the app
+   pages but are NOT .site-page — that class justifies its paragraphs, which is
+   right for prose and wrong for a field hint under an input. */
+.form-page {
+    max-width: 640px;
+}
+
+/* — editorial pages (about, terms, privacy, safety, how it works, errors) — */
+
+.site-page {
+    max-width: 74ch;
+}
+
+.site-page h1 {
+    font-size: 38px;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-divider);
+    margin-bottom: var(--space-4);
+}
+
+.site-page h2 {
+    font-size: 26px;
+    font-weight: 400;
+    margin-top: var(--space-6);
+    margin-bottom: var(--space-2);
+}
+
+.site-page h3 {
+    font-size: 20px;
+    margin-top: var(--space-4);
+}
+
+.site-page p {
+    line-height: 1.75;
+    text-align: justify;
+    text-wrap: pretty;
+}
+
+.site-page ul,
+.site-page ol {
+    margin: 0 0 var(--space-3);
+    padding-left: var(--space-6);
+    line-height: 1.75;
+}
+
+.site-page li {
+    margin-bottom: var(--space-2);
+}
+
+/* — listings: the shared row used by search, my posts and the feed — */
+
+.listing {
+    display: flex;
+    flex-direction: column;
+}
+
+.listing-item {
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--color-divider);
+}
+
+.listing-item:last-child {
+    border-bottom: 1px solid var(--color-divider);
+}
+
+.listing-title {
+    font-size: 22px;
+    font-weight: var(--font-heading-weight);
+    margin: 0 0 var(--space-2);
+    line-height: 1.2;
+}
+
+.listing-title a {
+    color: inherit;
+    text-decoration: none;
+}
+.listing-title a:hover {
+    color: var(--color-accent);
+}
+
+.listing-excerpt {
+    margin: 0 0 var(--space-2);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.listing-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-3);
+    font-size: 12px;
+    color: var(--color-neutral-700);
+}
+.listing-meta a {
+    color: inherit;
+    text-decoration: none;
+}
+.listing-meta a:hover {
+    color: var(--color-accent);
+}
+
+.listing-note {
+    border-top: 1px solid var(--color-divider);
+    padding-top: var(--space-3);
+    font-size: 12px;
+    color: var(--color-neutral-600);
+}
+
+.listing-more {
+    border-top: 1px solid var(--color-divider);
+    padding-top: var(--space-4);
+    display: flex;
+    justify-content: center;
+}
+
+/* The feed's date rail: the conference's opening date, set as a figure. */
+.feed-item {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: var(--space-4);
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--color-divider);
+}
+
+.feed-date {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.feed-date-day {
+    font-family: var(--font-heading);
+    font-size: 26px;
+    line-height: 1;
+}
+
+.feed-date-year {
+    font-size: 11px;
+    color: var(--color-neutral-600);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* — search — */
+
+.search-form {
+    display: grid;
+    grid-template-columns: 1.4fr 1.2fr 1fr 1fr 0.9fr 0.9fr auto;
+    gap: var(--space-3);
+    align-items: end;
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--color-divider);
+    border-bottom: 1px solid var(--color-divider);
+    margin-bottom: var(--space-2);
+}
+
+.search-form .field {
+    min-width: 0;
+}
+
+.search-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-3) 0 var(--space-1);
+}
+
+.search-count {
+    margin: 0;
+    font-size: 13px;
+    color: var(--color-neutral-700);
+    font-variant-numeric: tabular-nums;
+}
+
+.filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+
+.clear-filters {
+    margin-left: auto;
+    font-size: 12px;
+}
+
+/* — share types: the picker on the forms, badges everywhere else — */
+
 .share-types {
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 0.75rem 1rem 1rem;
-    margin-bottom: 1rem;
+    border: 0;
+    margin: 0;
+    padding: 0;
 }
 
 .share-types legend {
-    font-weight: bold;
-    color: #003d66;
-    padding: 0 0.4rem;
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 15px;
+    padding: 0;
+    margin-bottom: 2px;
 }
 
 .share-types .field-hint {
-    margin-top: 0;
-    margin-bottom: 0.6rem;
+    margin: 0 0 var(--space-2);
+}
+
+.share-type-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
 }
 
 .share-type-option {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.35rem;
-    font-weight: normal;
+    gap: 7px;
+    font-size: 14px;
     cursor: pointer;
-}
-
-/* The global `input` rule adds 0.5rem padding, a border and a radius, which on a
-   checkbox produces an oversized grey square. Undo all three. */
-.share-type-option input[type="checkbox"] {
-    width: auto;
-    flex: none;
-    margin: 0;
-    padding: 0;
-    border: none;
-    border-radius: 0;
 }
 
 .share-badges {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-bottom: 0.6rem;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-2);
 }
 
+/* .share-badge is .tag .tag-accent; the name is kept because it is what the
+   markup has always called it. */
 .share-badge {
-    display: inline-block;
-    background: #e6f2fa;
-    color: #00537f;
-    border: 1px solid #b9dcf0;
-    border-radius: 999px;
-    padding: 0.12rem 0.6rem;
-    font-size: 0.8rem;
-    line-height: 1.5;
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    padding: 3px 10px;
+    border-radius: calc(var(--radius-md) * 0.75);
+    background: var(--color-accent-100);
+    color: var(--color-accent-800);
     white-space: nowrap;
 }
 
-/* Example posts (How It Works) */
+/* — post detail — */
+
+.post-title {
+    font-size: 40px;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    margin: 0 0 var(--space-3);
+    max-width: 26ch;
+    text-wrap: pretty;
+}
+
+.post-facts {
+    margin: 0 0 var(--space-6);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-2) var(--space-6);
+    font-size: 14px;
+    border-top: 1px solid var(--color-divider);
+    border-bottom: 1px solid var(--color-divider);
+    padding: var(--space-3) 0;
+}
+
+.post-facts dt {
+    color: var(--color-neutral-600);
+}
+
+.post-facts dd {
+    margin: 0;
+}
+
+.post-body p {
+    margin: 0 0 var(--space-3);
+    font-size: 15px;
+    line-height: 1.75;
+    text-align: justify;
+    text-wrap: pretty;
+    white-space: pre-wrap;
+}
+
+.post-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-3);
+    border-top: 1px solid var(--color-divider);
+    padding-top: var(--space-4);
+    margin: var(--space-4) 0 0;
+    font-size: 13px;
+}
+
+.post-actions-note {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--color-neutral-600);
+}
+
+.report-link {
+    font-size: 13px;
+    color: var(--color-neutral-700);
+}
+.report-link:hover {
+    color: var(--color-accent);
+}
+
+.danger-link {
+    color: var(--color-neutral-700);
+}
+.danger-link:hover {
+    color: #8c1d18;
+}
+
+/* — conference index and conference page — */
+
+.jump-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding: var(--space-3) 0 var(--space-4);
+}
+
+.subject-group {
+    margin-bottom: var(--space-6);
+}
+
+.subject-group-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    border-bottom: 1px solid var(--color-divider);
+    padding-bottom: var(--space-2);
+}
+
+.subject-group-head h2 {
+    font-size: 26px;
+    font-weight: 400;
+    margin: 0;
+}
+.subject-group-head h2 a {
+    color: inherit;
+    text-decoration: none;
+}
+.subject-group-head h2 a:hover {
+    color: var(--color-accent);
+}
+
+.subject-group-count {
+    font-size: 12px;
+    color: var(--color-neutral-600);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Two columns, because a subject index is a list to scan rather than to read. */
+.conference-index {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    columns: 2;
+    column-gap: var(--space-8);
+}
+
+.conference-index li {
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-divider);
+    break-inside: avoid;
+}
+
+.conference-index a {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 19px;
+    text-decoration: none;
+    color: inherit;
+}
+.conference-index a:hover {
+    color: var(--color-accent);
+}
+
+.conference-index .card-meta {
+    margin-top: var(--space-1);
+    gap: var(--space-2);
+}
+
+.count-open {
+    color: var(--color-accent-700);
+    font-variant-numeric: tabular-nums;
+}
+
+.conference-facts {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: var(--space-1) var(--space-4);
+    font-size: 13px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.conference-facts dt {
+    color: var(--color-neutral-600);
+}
+.conference-facts dd {
+    margin: 0;
+}
+
+.conference-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-3);
+}
+
+.section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+}
+
+.section-head h2,
+.section-head h6 {
+    margin: 0;
+}
+
+.section-head-aside {
+    margin-left: auto;
+    font-size: 13px;
+}
+
+/* — featured conference cards (home) — */
+
+.conference-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-4);
+}
+
+.conference-card {
+    padding: var(--space-6);
+    text-decoration: none;
+    color: inherit;
+}
+.conference-card:hover {
+    border-color: var(--color-accent);
+}
+
+.conference-card .card-title {
+    font-size: 26px;
+    line-height: 1.15;
+    margin: var(--space-1) 0 var(--space-2);
+}
+
+.conference-card .card-meta {
+    border-top: 1px solid var(--color-divider);
+    padding-top: var(--space-2);
+    gap: var(--space-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* — home — */
+
+.home-hero {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-6);
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--color-divider);
+    margin-bottom: var(--space-6);
+}
+
+.home-hero h1 {
+    font-size: 44px;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    margin: 0 0 var(--space-1);
+}
+
+.home-hero p {
+    margin: 0;
+    font-size: 15px;
+    color: var(--color-neutral-700);
+    max-width: 62ch;
+}
+
+.home-layout {
+    display: grid;
+    grid-template-columns: 264px 1fr;
+    gap: var(--space-8);
+    align-items: start;
+}
+
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.sidebar h6 {
+    margin: 0 0 var(--space-3);
+}
+
+.filter-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.filter-row {
+    display: flex;
+    gap: var(--space-2);
+}
+.filter-row .field {
+    flex: 1;
+    min-width: 0;
+}
+
+.subject-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+
+/* — forms — */
+
+.form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.form-step {
+    border-top: 1px solid var(--color-divider);
+    padding-top: var(--space-6);
+    margin-top: var(--space-4);
+}
+
+.form-step:first-child {
+    border-top: 0;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+.form-step h6 {
+    margin: 0 0 var(--space-3);
+    color: var(--color-accent);
+}
+
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding-top: var(--space-1);
+}
+
+.field-hint {
+    margin: var(--space-1) 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--color-neutral-600);
+}
+
+.form-disclaimer {
+    margin: var(--space-1) 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--color-neutral-600);
+}
+
+/* An accent-stroked note, not a filled banner — color is stroke here. */
+.form-notice {
+    margin: 0 0 var(--space-3);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: 13px;
+    line-height: 1.6;
+    background: var(--color-accent-100);
+    color: var(--color-accent-900);
+}
+
+.confirm-warning {
+    margin: 0 0 var(--space-4);
+    border: 1px solid #8c1d18;
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: 14px;
+    line-height: 1.6;
+    color: #7a1c17;
+}
+
+.empty-state {
+    margin: var(--space-4) 0;
+    padding: var(--space-6);
+    border: 1px dashed var(--color-divider);
+    border-radius: var(--radius-md);
+    text-align: center;
+    color: var(--color-neutral-700);
+}
+
+/* Not `.htmx-indicator`: htmx injects its own rule setting that class to
+   opacity 0 except during a request, which would hide a placeholder whose whole
+   job is to say something before the first response arrives. */
+.loading-note {
+    font-size: 13px;
+    color: var(--color-neutral-600);
+}
+
+/* The Turnstile widget renders into a fixed-size iframe; give it room without
+   letting it stretch a grid column. */
+.cf-turnstile {
+    margin: var(--space-1) 0;
+    max-width: 300px;
+}
+
+/* — how-it-works example posts — */
+
 .example-post {
-    background: #fafafa;
-    border: 1px solid #ddd;
-    border-left: 4px solid #007acc;
-    border-radius: 4px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.25rem;
+    border-left: 2px solid var(--color-accent);
+    padding: var(--space-3) 0 var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-6);
 }
 
-.site-page .example-post .example-label {
-    font-size: 0.8rem;
+.example-label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #666;
-    margin-bottom: 0.75rem;
+    color: var(--color-neutral-600);
 }
 
-.site-page .example-post .example-field {
-    margin-bottom: 0.75rem;
-}
-
-.site-page .example-post .example-field:last-child {
-    margin-bottom: 0;
+.site-page .example-post p {
+    text-align: left;
 }
 
 .example-field-name {
     display: block;
-    font-size: 0.85rem;
-    font-weight: bold;
-    color: #003d66;
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-neutral-700);
 }
 
-/* Search */
-.search-form {
-    margin-bottom: 1.5rem;
+/* — login — */
+
+.login-container {
+    max-width: 380px;
+    margin: var(--space-8) auto;
 }
 
-.search-count {
-    color: #666;
-    font-size: 0.9rem;
-    margin-bottom: 0.75rem;
+.login-container .error {
+    margin-top: var(--space-3);
+    font-size: 13px;
+    color: #8c1d18;
 }
 
-/* Subject tags */
-.conference-tags {
+.login-container .success {
+    margin-top: var(--space-3);
+    font-size: 13px;
+    color: var(--color-accent-700);
+}
+
+/* — my posts — */
+
+.my-posts-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.my-post-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-6);
+    align-items: start;
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--color-divider);
+}
+
+.my-post-item h3 {
+    font-size: 21px;
+    margin: 0 0 var(--space-2);
+}
+.my-post-item h3 a {
+    color: inherit;
+    text-decoration: none;
+}
+.my-post-item h3 a:hover {
+    color: var(--color-accent);
+}
+
+.my-post-actions {
+    display: flex;
+    gap: var(--space-3);
+    font-size: 13px;
+}
+
+.conference-info {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-bottom: 1rem;
+    gap: var(--space-3);
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-neutral-700);
+}
+.conference-info a {
+    color: inherit;
+    text-decoration: none;
+}
+.conference-info a:hover {
+    color: var(--color-accent);
 }
 
-/* Post owner / moderation actions */
-.post-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    margin-top: 0.75rem;
-    font-size: 0.9rem;
+.created-info {
+    font-variant-numeric: tabular-nums;
 }
 
-.danger-link {
-    color: #b3261e;
+/* — narrow screens — */
+
+@media (max-width: 900px) {
+    :root {
+        --page-gutter: var(--space-4);
+    }
+
+    .with-aside,
+    .home-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .search-form {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .search-form > .btn {
+        grid-column: 1 / -1;
+    }
+
+    .conference-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .conference-index {
+        columns: 1;
+    }
+
+    .footer-note {
+        margin-left: 0;
+        text-align: left;
+        max-width: none;
+    }
 }
 
-.report-link {
-    color: #666;
-    font-size: 0.85rem;
-    text-decoration: underline;
-}
+@media (max-width: 620px) {
+    .page-title {
+        font-size: 30px;
+    }
 
-.report-link:hover {
-    color: #b3261e;
-}
+    .post-title {
+        font-size: 30px;
+    }
 
-.danger-button {
-    background-color: #b3261e;
-}
+    .home-hero h1 {
+        font-size: 32px;
+    }
 
-.danger-button:hover {
-    background-color: #8c1d18;
-}
+    .search-form {
+        grid-template-columns: 1fr;
+    }
 
-.confirm-warning {
-    background: #fdecea;
-    border: 1px solid #f5c2c0;
-    border-radius: 4px;
-    padding: 0.75rem 1rem;
-    color: #7a1c17;
-    margin-bottom: 1rem;
+    .my-post-item,
+    .feed-item {
+        grid-template-columns: 1fr;
+    }
+
+    .feed-date {
+        text-align: left;
+    }
+
+    .site-page p {
+        text-align: left;
+    }
 }

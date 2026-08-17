@@ -156,27 +156,40 @@ export async function handleEditPostForm(
   if (pickerHtml === null) return errorPage();
 
   const content = `
-    <div class="site-page">
-      <h2>Edit Post</h2>
-      <form action="/post/${post.id}/edit" method="POST">
-        <label>Conference</label>
-        <input type="text" value="${escapeHtml(post.conference_name)}" disabled />
+    <div class="form-page">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Edit post</h1>
+          <p class="page-lede">Changing what you're sharing replaces the whole set — whatever is ticked when you save is what the post offers.</p>
+        </div>
+      </div>
+      <form action="/post/${post.id}/edit" method="POST" class="form-stack">
+        <div class="field">
+          <label for="edit-conference">Conference</label>
+          <input class="input" id="edit-conference" type="text" value="${escapeHtml(post.conference_name)}" disabled />
+        </div>
 
-        <label>Post Title</label>
-        <input type="text" name="title" value="${escapeHtml(post.title)}" required />
+        <div class="field">
+          <label for="edit-title">Post title</label>
+          <input class="input" id="edit-title" type="text" name="title" value="${escapeHtml(post.title)}" required />
+        </div>
 
-        <label>Description</label>
-        <textarea name="description" rows="6" required>${escapeHtml(post.description)}</textarea>
+        <div class="field">
+          <label for="edit-description">Description</label>
+          <textarea class="input" id="edit-description" name="description" rows="6" required>${escapeHtml(post.description)}</textarea>
+        </div>
 
         ${pickerHtml}
 
-        <button type="submit">Save Changes</button>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Save changes</button>
+          <a href="/post/${post.id}" class="btn btn-ghost">Cancel</a>
+        </div>
       </form>
-      <p><a href="/post/${post.id}">Cancel</a></p>
     </div>
   `;
 
-  return pageResponse("Edit Post", content);
+  return pageResponse("Edit post", content);
 }
 
 export async function handleEditPostSubmit(
@@ -230,17 +243,19 @@ export async function handleDeletePostConfirm(
   const { post } = guard.value;
 
   const content = `
-    <div class="site-page">
-      <h2>Delete Post</h2>
-      <p>Are you sure you want to delete <strong>${escapeHtml(post.title)}</strong>? This action cannot be undone.</p>
-      <form action="/post/${post.id}/delete" method="POST">
-        <button type="submit" class="danger-button">Delete permanently</button>
+    <div class="form-page">
+      <div class="page-head">
+        <div><h1 class="page-title">Delete post</h1></div>
+      </div>
+      <p class="confirm-warning">Are you sure you want to delete <strong>${escapeHtml(post.title)}</strong>? This cannot be undone, and anyone who has written to you about it will have nothing to link back to.</p>
+      <form action="/post/${post.id}/delete" method="POST" class="form-actions">
+        <button type="submit" class="btn btn-danger">Delete permanently</button>
+        <a href="/post/${post.id}" class="btn btn-ghost">Cancel</a>
       </form>
-      <p><a href="/post/${post.id}">Cancel</a></p>
     </div>
   `;
 
-  return pageResponse("Delete Post", content);
+  return pageResponse("Delete post", content);
 }
 
 export async function handleDeletePostSubmit(

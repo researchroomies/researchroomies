@@ -21,6 +21,27 @@ export function formatDate(timestamp: number): string {
     });
 }
 
+/**
+ * The two halves of a date, for the feed's date rail: "Jan 4" over "2027".
+ *
+ * Split rather than formatted whole because the rail sets them at different
+ * sizes and the year in small caps beneath the day — one string could not be
+ * styled that way without markup inside it.
+ */
+export function formatDay(timestamp: number): string {
+    if (!Number.isFinite(timestamp)) return '';
+    return new Date(timestamp * 1000).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC',
+    });
+}
+
+export function formatYear(timestamp: number): string {
+    if (!Number.isFinite(timestamp)) return '';
+    return String(new Date(timestamp * 1000).getUTCFullYear());
+}
+
 /** Drops the redundant year from the start date when both ends share one. */
 export function formatDateRange(start: number, stop: number): string {
     if (!Number.isFinite(start) || !Number.isFinite(stop)) return '';

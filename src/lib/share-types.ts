@@ -52,14 +52,14 @@ function shareTypeCheckboxes(types: ShareType[], selected: Set<string>): string 
 	return `<fieldset class="share-types">
 		<legend>What are you sharing?</legend>
 		<p class="field-hint">Check every one that applies — a single post can offer a room and a seat in the car.</p>
-		${types
+		<div class="share-type-options">${types
 			.map(
 				(type) => `<label class="share-type-option">
 			<input type="checkbox" name="share_types" value="${escapeHtml(type.slug)}"${selected.has(type.slug) ? ' checked' : ''} />
 			<span>${escapeHtml(type.name)}</span>
 		</label>`,
 			)
-			.join('')}
+			.join('')}</div>
 	</fieldset>`;
 }
 
@@ -90,9 +90,9 @@ export function shareTypeOptions(types: ShareType[], selected: string): string {
 export function shareTypeBadges(types: ShareType[]): string {
 	if (types.length === 0) return '';
 
-	return `<p class="share-badges">${types
+	return `<div class="share-badges">${types
 		.map((type) => `<span class="share-badge">${escapeHtml(type.name)}</span>`)
-		.join('')}</p>`;
+		.join('')}</div>`;
 }
 
 /**

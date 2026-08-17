@@ -1,5 +1,6 @@
 import { Router, type Handler } from './lib/router';
-import { handleFeaturedConferences, handleAllConferences, handleConferencePage } from './routes/conferences';
+import { handleFeaturedConferences, handleConferencePage } from './routes/conferences';
+import { handleAllConferences } from './routes/all-conferences';
 import { handleSubjectPage } from './routes/subjects';
 import { handleSearch } from './routes/search';
 import {
@@ -8,6 +9,7 @@ import {
 	handleComponentNavSubjects,
 	handleComponentTagOptions,
 	handleComponentShareTypeOptions,
+	handleComponentRecentPosts,
 	handleComponentNavUser,
 } from './routes/components';
 import { handlePostPage, handleComponentPost } from './routes/post-detail';
@@ -52,6 +54,7 @@ export const ROUTES: RouteDefinition[] = [
 	{ method: 'GET', path: '/api/components/nav-subjects', handler: handleComponentNavSubjects },
 	{ method: 'GET', path: '/api/components/tag-options', handler: handleComponentTagOptions },
 	{ method: 'GET', path: '/api/components/share-type-options', handler: handleComponentShareTypeOptions },
+	{ method: 'GET', path: '/api/components/recent-posts', handler: handleComponentRecentPosts },
 	{ method: 'GET', path: '/api/components/post/:id', handler: handleComponentPost },
 	{ method: 'POST', path: '/api/post', handler: handleCreatePost },
 	{ method: 'POST', path: '/api/message/send', handler: handleMessageSend },

@@ -51,12 +51,19 @@ export async function getPost(env: Env, id: number): Promise<Post | null> {
  *
  * The one query behind `/post/:id`, `/api/components/post/:id`,
  * `requireOwnedPost()` and the report form.
+ *
+ * It selects the conference's dates and location as well as its name, because
+ * the post page states them as facts beside the description — the reader's first
+ * question about a room share is which nights it covers. The ownership guard and
+ * the report form ignore the extra columns, which is the same deliberate
+ * widening Task 3 made rather than keeping two near-identical shapes apart.
  */
 export async function getPostWithConference(env: Env, id: number): Promise<PostDetail | null> {
 	return await env.DB.prepare(
 		`
-		SELECT p.id, p.title, p.description, p.user_id, p.conference_id,
-		       c.name AS conference_name, c.slug AS conference_slug
+		SELECT p.id, p.title, p.description, p.created_at, p.user_id, p.conference_id,
+		       c.name AS conference_name, c.slug AS conference_slug,
+		       c.location_address, c.start_time, c.stop_time
 		FROM posts p
 		JOIN conferences c ON p.conference_id = c.id
 		WHERE p.id = ?
@@ -78,6 +85,30 @@ export async function listPostsForConference(env: Env, conferenceId: number): Pr
 	)
 		.bind(conferenceId)
 		.all<Post>();
+	return results ?? [];
+}
+
+/**
+ * The newest posts across every conference — the homepage feed.
+ *
+ * Ordered by `created_at DESC`, which is the one thing that distinguishes it
+ * from an unfiltered `searchPosts()`: that query sorts by conference start date
+ * so that a search reads as an itinerary, whereas this one answers "what has
+ * been posted lately". `limit` is interpolated rather than bound because SQLite
+ * will not accept a placeholder in LIMIT; the caller's value is a module
+ * constant, and `Math.trunc`/`Math.max` make it a number regardless.
+ */
+export async function listRecentPosts(env: Env, limit: number): Promise<PostWithConference[]> {
+	const capped = Math.max(1, Math.min(50, Math.trunc(limit) || 1));
+	const { results } = await env.DB.prepare(
+		`
+		SELECT ${POST_WITH_CONFERENCE_COLUMNS}
+		FROM posts
+		JOIN conferences ON posts.conference_id = conferences.id
+		ORDER BY posts.created_at DESC
+		LIMIT ${capped}
+	`,
+	).all<PostWithConference>();
 	return results ?? [];
 }
 

@@ -52,17 +52,29 @@ export async function listConferences(env: Env): Promise<ConferenceSummary[]> {
 	return results ?? [];
 }
 
-/** The homepage's featured list. */
-export async function listFeaturedConferences(env: Env): Promise<ConferenceListing[]> {
+/**
+ * The homepage's featured list, each with how many posts it has.
+ *
+ * The count is what makes a featured card worth clicking — "9 open posts" is
+ * the difference between a conference someone is already coordinating around
+ * and one nobody has posted for. As in `listAllConferences()`, the subjects are
+ * deliberately not joined in: adding `conference_tags` would fan the rows out
+ * one per (conference, subject) pair and multiply the count.
+ */
+export async function listFeaturedConferences(env: Env): Promise<ConferenceWithPostCount[]> {
 	const { results } = await env.DB.prepare(
 		`
-		SELECT id, name, slug, location_address, start_time, stop_time
+		SELECT conferences.id, conferences.name, conferences.slug,
+		       conferences.location_address, conferences.start_time, conferences.stop_time,
+		       COUNT(posts.id) AS post_count
 		FROM conferences
-		WHERE is_featured = 1
-		ORDER BY created_at DESC
+		LEFT JOIN posts ON posts.conference_id = conferences.id
+		WHERE conferences.is_featured = 1
+		GROUP BY conferences.id
+		ORDER BY conferences.created_at DESC
 		LIMIT 10
 	`,
-	).all<ConferenceListing>();
+	).all<ConferenceWithPostCount>();
 	return results ?? [];
 }
 

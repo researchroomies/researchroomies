@@ -1,4 +1,4 @@
-import { escapeHtml, formatDateRange } from "../lib/html";
+import { escapeHtml, formatDate, formatDateRange, summarize } from "../lib/html";
 import {
   errorPage,
   fragmentResponse,
@@ -7,29 +7,28 @@ import {
 } from "../lib/response";
 import {
   getConferenceBySlug,
-  listAllConferences,
   listFeaturedConferences,
 } from "../db/conferences";
 import { listPostsForConference } from "../db/posts";
-import { listTagsForConference, listTagsForConferences } from "../db/tags";
+import { listTagsForConference } from "../db/tags";
+import { listShareTypesForPosts } from "../db/share-types";
+import { shareTypeBadges } from "../lib/share-types";
 import type {
   Conference,
-  ConferenceListing,
   ConferenceWithPostCount,
   Post,
+  ShareType,
   Tag,
 } from "../db/types";
 
 /**
- * Conference browsing: the `/conferences` index, the `/conference/:slug` page,
- * and the homepage's featured list fragment.
+ * One conference: the `/conference/:slug` page and the homepage's featured
+ * fragment. The `/conferences` index and its subject grouping live in
+ * all-conferences.ts.
  *
  * The render helpers below stay private to this file on purpose. They are used
- * by exactly one handler each (and `renderTagChips` by exactly one other
- * helper), so hoisting them into a shared `render.ts` would buy nothing and
- * recreate `api.ts` at a smaller scale. `renderIndexItem()` is deliberately a
- * near-twin of the list item `/subject/:slug` renders — the same rule says a
- * two-line template shared by two pages is not worth a cross-module import.
+ * by exactly one handler each, so hoisting them into a shared `render.ts` would
+ * buy nothing and recreate `api.ts` at a smaller scale.
  */
 
 function renderTagChips(tags: Tag[]): string {
@@ -39,62 +38,150 @@ function renderTagChips(tags: Tag[]): string {
       (tag) =>
         `<a href="/subject/${encodeURIComponent(tag.slug)}" class="nav-subject">${escapeHtml(tag.name)}</a>`,
     )
-    .join(" ");
-  return `<p class="conference-tags">${chips}</p>`;
+    .join("");
+  return `<div class="conference-tags">${chips}</div>`;
 }
 
-function renderFeaturedConferences(conferences: ConferenceListing[]): string {
+function renderFeaturedConferences(
+  conferences: ConferenceWithPostCount[],
+): string {
   if (conferences.length === 0) {
-    return "<p>No featured conferences available at the moment.</p>";
+    return `<p class="empty-state">No featured conferences yet. <a href="/conferences">Browse all conferences</a>.</p>`;
   }
 
-  const items = conferences
+  const cards = conferences
     .map(
       (conf) => `
-    <li>
-      <a href="/conference/${encodeURIComponent(conf.slug)}">
-        <strong>${escapeHtml(conf.name)}</strong><br />
-        ${escapeHtml(conf.location_address)} (${formatDateRange(conf.start_time, conf.stop_time)})
+      <a href="/conference/${encodeURIComponent(conf.slug)}" class="card conference-card">
+        <div class="card-kicker tnum">${formatDateRange(conf.start_time, conf.stop_time)}</div>
+        <div class="card-title">${escapeHtml(conf.name)}</div>
+        <p class="card-body">${escapeHtml(conf.location_address || "Location to be announced")}</p>
+        <div class="card-meta">
+          ${
+            conf.post_count === 0
+              ? `<span>No posts yet</span>`
+              : `<span class="count-open">${conf.post_count} open post${conf.post_count === 1 ? "" : "s"}</span>`
+          }
+        </div>
       </a>
-    </li>
-  `,
+    `,
     )
     .join("");
 
-  return `<ul>${items}</ul>`;
+  return `<div class="conference-cards">${cards}</div>`;
+}
+
+/**
+ * The share-type row above a conference's posts.
+ *
+ * The counts come from the badges already loaded for this page, so the row
+ * costs no extra query. Each is a link into `/search` rather than an in-page
+ * filter: filtering here would need either a script or a second endpoint, and
+ * `/search` is the page that already answers "posts offering a carpool", with
+ * every other filter available beside it.
+ */
+function renderShareFilter(
+  conference: Conference,
+  posts: Post[],
+  shareTypes: Map<number, ShareType[]>,
+): string {
+  const counts = new Map<string, { name: string; count: number }>();
+  for (const post of posts) {
+    for (const type of shareTypes.get(post.id) ?? []) {
+      const entry = counts.get(type.slug);
+      if (entry) entry.count += 1;
+      else counts.set(type.slug, { name: type.name, count: 1 });
+    }
+  }
+  if (counts.size === 0) return "";
+
+  const base = `/search?conference=${encodeURIComponent(conference.name)}`;
+  const options = [...counts.entries()]
+    .map(
+      ([slug, { name, count }]) =>
+        `<a class="seg-opt" href="${escapeHtml(`${base}&share=${encodeURIComponent(slug)}`)}">${escapeHtml(name)} <span class="seg-count">${count}</span></a>`,
+    )
+    .join("");
+
+  return `
+        <div class="seg section-head-aside">
+          <a class="seg-opt" aria-current="page" href="${escapeHtml(base)}">All <span class="seg-count">${posts.length}</span></a>
+          ${options}
+        </div>`;
+}
+
+function renderPostList(
+  posts: Post[],
+  shareTypes: Map<number, ShareType[]>,
+): string {
+  if (posts.length === 0) {
+    return `<p class="empty-state">No posts for this conference yet. <a href="/create">Post the first one</a>.</p>`;
+  }
+
+  return `<div class="listing">${posts
+    .map(
+      (post) => `
+        <article class="listing-item">
+          <h3 class="listing-title"><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+          ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
+          <p class="listing-excerpt">${escapeHtml(summarize(post.description, 180))}</p>
+          <div class="listing-meta">
+            <span>Posted ${formatDate(post.created_at)}</span>
+            <a href="/post/${post.id}">Reply</a>
+          </div>
+        </article>
+      `,
+    )
+    .join("")}</div>`;
 }
 
 function renderConferencePage(
   conference: Conference,
   posts: Post[],
   tags: Tag[],
+  shareTypes: Map<number, ShareType[]>,
 ): string {
-  const postsHtml =
-    posts.length > 0
-      ? posts
-          .map(
-            (post) =>
-              `<li><a href="/post/${post.id}">${escapeHtml(post.title)}</a></li>`,
-          )
-          .join("")
-      : "<li>No posts available for this conference.</li>";
-
-  const locationHtml = conference.location_address
-    ? `<p><strong>Location:</strong> ${escapeHtml(conference.location_address)}</p>`
-    : "";
-
-  const dateHtml = `<p><strong>Dates:</strong> ${formatDateRange(conference.start_time, conference.stop_time)}</p>`;
-
+  // No subject in the breadcrumb: a conference can carry several, and picking
+  // the first would name one arbitrarily. The chips under the title show them all.
   return `
-    <div class="site-page">
-      <h2>${escapeHtml(conference.name)}</h2>
-      ${locationHtml}
-      ${dateHtml}
-      ${renderTagChips(tags)}
-      <p>${escapeHtml(conference.description || "")}</p>
-      <ul>
-        ${postsHtml}
-      </ul>
+    <p class="breadcrumb"><a href="/conferences">Conferences</a> &nbsp;/&nbsp; ${escapeHtml(conference.name)}</p>
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">${escapeHtml(conference.name)}</h1>
+        ${conference.description ? `<p class="page-lede">${escapeHtml(conference.description)}</p>` : ""}
+        ${renderTagChips(tags)}
+      </div>
+      <dl class="conference-facts">
+        <dt>Dates</dt><dd>${formatDateRange(conference.start_time, conference.stop_time)}</dd>
+        ${conference.location_address ? `<dt>Location</dt><dd>${escapeHtml(conference.location_address)}</dd>` : ""}
+        <dt>Open posts</dt><dd>${posts.length}</dd>
+      </dl>
+    </div>
+    <div class="with-aside">
+      <section>
+        <div class="section-head">
+          <h6>Posts for this conference</h6>
+          ${renderShareFilter(conference, posts, shareTypes)}
+        </div>
+        ${renderPostList(posts, shareTypes)}
+      </section>
+      <aside class="aside-stack">
+        <div class="aside-box">
+          <h4>Going to this one?</h4>
+          <p class="aside-note">Post what you're willing to share — a spare bed, a seat in the car, or both.</p>
+          <a href="/create" class="btn btn-primary btn-block">Post for this conference</a>
+        </div>
+        <div class="aside-section">
+          <h6>Browse</h6>
+          <div class="stacked-links">
+            <a href="/conferences">All conferences</a>
+            <a href="/search">Search every post</a>
+          </div>
+        </div>
+        <div class="aside-section">
+          <p class="aside-note">ResearchRoomies doesn't verify or endorse users. Verify who you're dealing with before you share a room or a car. <a href="/safety">Safety &amp; Scam Awareness Guide</a></p>
+        </div>
+      </aside>
     </div>
   `;
 }
@@ -112,7 +199,7 @@ export async function handleFeaturedConferences(
   } catch (error) {
     console.error("Error fetching featured conferences:", error);
     return fragmentResponse(
-      "<p>Error loading featured conferences. Please try again later.</p>",
+      `<p class="empty-state">Error loading featured conferences. Please try again later.</p>`,
       { status: 500, cache: "none" },
     );
   }
@@ -131,7 +218,7 @@ export async function handleConferencePage(
       // without a slug segment, so this is an unreachable guard, not a miss.
       return pageResponse(
         "Error",
-        `<div class="site-page"><h2>Error</h2><p>Conference slug is required</p></div>`,
+        `<div class="site-page"><h1>Error</h1><p>Conference slug is required</p></div>`,
         { status: 400, cache: "none" },
       );
     }
@@ -145,169 +232,23 @@ export async function handleConferencePage(
       listPostsForConference(env, conference.id),
       listTagsForConference(env, conference.id),
     ]);
-    const content = renderConferencePage(conference, posts, tags);
-
-    return pageResponse(conference.name, content, { cache: "public-short" });
-  } catch (error) {
-    console.error("Error fetching conference:", error);
-    return errorPage();
-  }
-}
-
-/* ------------------------------------------- /conferences, grouped by subject */
-
-/**
- * One heading and the conferences under it.
- *
- * `tag: null` is the trailing "no subject yet" group. It is not a subject and
- * does not link anywhere, which is why this is a nullable `Tag` rather than a
- * synthetic tag row with a made-up slug — a fake slug would render as a link to
- * a `/subject/:slug` that 404s.
- */
-interface SubjectGroup {
-  tag: Tag | null;
-  conferences: ConferenceWithPostCount[];
-}
-
-/**
- * Buckets conferences under each subject they carry.
- *
- * Three decisions worth stating, because none of them is the only possible one:
- *
- *  - **A conference with two subjects appears under both.** Subjects are a
- *    many-to-many (`conference_tags`), so picking one bucket per conference
- *    would mean inventing a "primary" subject the data does not have, and would
- *    hide a joint bio/CS conference from one of the two audiences looking for it.
- *    The page is a browse index, not a count of conferences.
- *  - **Untagged conferences get their own group at the end, rather than being
- *    dropped.** On production almost nothing is tagged — subjects can only be
- *    set while creating a conference, so everything predating the feature is
- *    permanently untaggable — and a strict grouping would render an empty page
- *    on the live database. The group is last so it does not lead with the gap.
- *  - **Subjects with no conferences are omitted**, rather than rendered as
- *    twelve empty headings. The nav already lists every subject; this page shows
- *    what is actually there.
- *
- * Groups come out ordered by subject name, and conferences keep the order they
- * arrived in (`listAllConferences()` sorts them), so the ordering is a property
- * of the query rather than something re-decided here.
- */
-function groupBySubject(
-  conferences: ConferenceWithPostCount[],
-  tagsByConference: Map<number, Tag[]>,
-): SubjectGroup[] {
-  const bySlug = new Map<string, SubjectGroup>();
-  const untagged: ConferenceWithPostCount[] = [];
-
-  for (const conference of conferences) {
-    const tags = tagsByConference.get(conference.id) ?? [];
-    if (tags.length === 0) {
-      untagged.push(conference);
-      continue;
-    }
-    for (const tag of tags) {
-      const group = bySlug.get(tag.slug);
-      if (group) group.conferences.push(conference);
-      else bySlug.set(tag.slug, { tag, conferences: [conference] });
-    }
-  }
-
-  const groups = [...bySlug.values()].sort((a, b) =>
-    // Both tags are non-null in this map; only the untagged group below is not.
-    (a.tag?.name ?? "").localeCompare(b.tag?.name ?? ""),
-  );
-  if (untagged.length > 0) groups.push({ tag: null, conferences: untagged });
-  return groups;
-}
-
-function renderIndexItem(conference: ConferenceWithPostCount): string {
-  return `
-    <li>
-      <a href="/conference/${encodeURIComponent(conference.slug)}">
-        <strong>${escapeHtml(conference.name)}</strong>
-      </a><br />
-      ${conference.location_address ? `${escapeHtml(conference.location_address)} · ` : ""}${formatDateRange(conference.start_time, conference.stop_time)}
-      · ${conference.post_count} post${conference.post_count === 1 ? "" : "s"}
-    </li>
-  `;
-}
-
-function renderSubjectGroup(group: SubjectGroup): string {
-  const heading = group.tag
-    ? `<h3><a href="/subject/${encodeURIComponent(group.tag.slug)}">${escapeHtml(group.tag.name)}</a></h3>`
-    : `<h3>No subject yet</h3>
-       <p class="empty-state">These conferences have not been assigned a subject.</p>`;
-
-  return `
-    <section class="subject-group">
-      ${heading}
-      <ul>${group.conferences.map(renderIndexItem).join("")}</ul>
-    </section>
-  `;
-}
-
-function renderAllConferences(
-  groups: SubjectGroup[],
-  total: number,
-): string {
-  if (total === 0) {
-    return `
-      <div class="site-page">
-        <h2>All Conferences</h2>
-        <p class="empty-state">No conferences have been added yet.</p>
-      </div>
-    `;
-  }
-
-  return `
-    <div class="site-page">
-      <h2>All Conferences</h2>
-      <p>${total} conference${total === 1 ? "" : "s"}, grouped by subject. A conference listed under more than one subject appears in each.</p>
-      ${groups.map(renderSubjectGroup).join("")}
-    </div>
-  `;
-}
-
-/**
- * `/conferences` — every conference, grouped by subject.
- *
- * Two queries regardless of size: the conferences, then all their subjects at
- * once. Reading subjects per conference would be a query per row, which is the
- * mistake `listShareTypesForPosts()` exists to prevent on the post lists.
- *
- * Nothing links here yet — deliberately, pending the redesign. It is registered,
- * reachable and indexable; it is just not in the nav.
- *
- * Conferences are ordered by start date ascending, matching `/subject/:slug`,
- * which means finished conferences sit at the top. That is the sibling page's
- * existing behaviour rather than a choice made here; if it should instead lead
- * with upcoming ones, the change belongs in `listAllConferences()` and
- * `listConferencesForTag()` together, so the two pages do not disagree.
- */
-export async function handleAllConferences(
-  request: Request,
-  env: Env,
-  _ctx: ExecutionContext,
-): Promise<Response> {
-  try {
-    const conferences = await listAllConferences(env);
-    const tagsByConference = await listTagsForConferences(
+    // One query for every badge on the page, as on /search and /my-posts —
+    // never listShareTypesForPost() in a loop.
+    const shareTypes = await listShareTypesForPosts(
       env,
-      conferences.map((conference) => conference.id),
+      posts.map((post) => post.id),
     );
-    const content = renderAllConferences(
-      groupBySubject(conferences, tagsByConference),
-      conferences.length,
-    );
+    const content = renderConferencePage(conference, posts, tags, shareTypes);
 
-    return pageResponse("All Conferences", content, {
+    return pageResponse(conference.name, content, {
       cache: "public-short",
-      description:
-        "Every conference on ResearchRoomies, grouped by field of study. Find academics attending the same conference and share travel costs.",
-      canonicalUrl: `${new URL(request.url).origin}/conferences`,
+      description: summarize(
+        `${conference.name} — ${conference.location_address || "conference"}, ${formatDateRange(conference.start_time, conference.stop_time)}. ${posts.length} post${posts.length === 1 ? "" : "s"} from academics looking to share travel costs.`,
+      ),
+      canonicalUrl: `${new URL(request.url).origin}/conference/${encodeURIComponent(conference.slug)}`,
     });
   } catch (error) {
-    console.error("Error listing conferences:", error);
+    console.error("Error fetching conference:", error);
     return errorPage();
   }
 }

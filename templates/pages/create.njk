@@ -4,48 +4,115 @@ description: Post a request to share a hotel room, rental car, or other conferen
 ---
 {% extends "base.njk" %}
 {% block content %}
-<h2>Create a Post</h2>
-<form action="/api/post" method="POST">
-  <div id="auth-email-container" hx-get="/api/components/create-form-auth" hx-trigger="load" hx-swap="outerHTML">
-    <label>Email</label>
-    <input type="email" name="email" required placeholder="Checking authentication..." readonly />
+<div class="with-aside">
+  <div>
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Create a post</h1>
+        <p class="page-lede">Say what you're sharing, when, and anything a stranger would want to know before replying.</p>
+      </div>
+    </div>
+
+    <form action="/api/post" method="POST">
+      <div class="form-step">
+        <h6>1 &middot; The conference</h6>
+        <div class="form-stack">
+          <div class="field">
+            <label for="conference">Conference</label>
+            <select class="input" id="conference" name="conference_id"
+                    hx-get="/api/components/conference-options" hx-trigger="load" hx-swap="innerHTML"
+                    onchange="document.getElementById('new-conference-fields').hidden = this.value !== 'new';">
+              <option value="new">Create New Conference</option>
+            </select>
+            <p class="field-hint">Can't find yours? Pick "Create New Conference" — but check the list first so we don't end up with two.</p>
+          </div>
+
+          <div id="new-conference-fields" hidden>
+            <p class="form-notice">Please make sure you are not duplicating an already existing conference. Browse existing conferences before creating a new one.</p>
+            <div class="form-stack">
+              <div class="field">
+                <label for="new_conf_name">New conference name</label>
+                <input class="input" id="new_conf_name" type="text" name="new_conf_name" />
+              </div>
+              <div class="filter-row">
+                <div class="field">
+                  <label for="new_conf_start">Start date</label>
+                  <input class="input" id="new_conf_start" type="date" name="new_conf_start" />
+                </div>
+                <div class="field">
+                  <label for="new_conf_end">End date</label>
+                  <input class="input" id="new_conf_end" type="date" name="new_conf_end" />
+                </div>
+              </div>
+              <div class="filter-row">
+                <div class="field">
+                  <label for="new_conf_city">City</label>
+                  <input class="input" id="new_conf_city" type="text" name="new_conf_city" />
+                </div>
+                <div class="field">
+                  <label for="new_conf_state">State</label>
+                  <input class="input" id="new_conf_state" type="text" name="new_conf_state" />
+                </div>
+              </div>
+              <div class="field">
+                <label for="conf_tags">Subjects</label>
+                <select class="input" id="conf_tags" name="conf_tags" multiple size="6"
+                        hx-get="/api/components/tag-options?blank=0"
+                        hx-trigger="load"
+                        hx-swap="innerHTML"></select>
+                <p class="field-hint">Hold Ctrl (or Cmd) to select more than one. Subjects let people find this conference from the nav and the search filter.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-step">
+        <h6>2 &middot; Your post</h6>
+        <div class="form-stack">
+          {# The share-type checkboxes come from the curated list in the
+             database, so the create form and the edit form cannot drift. #}
+          <div id="share-types-container" hx-get="/api/components/share-type-options" hx-trigger="load" hx-swap="innerHTML"></div>
+
+          <div class="field">
+            <label for="title">Post title</label>
+            <input class="input" id="title" type="text" name="title" placeholder="Splitting a queen room near the convention center" required />
+          </div>
+
+          <div class="field">
+            <label for="description">Description</label>
+            <textarea class="input" id="description" name="description" rows="6" placeholder="Dates, rough cost, whether you've already booked, anything about how you travel." required></textarea>
+            <p class="form-disclaimer">Please make sure you are only posting information that you are comfortable making publicly available. Before arranging anything with another user, read our <a href="/safety" target="_blank">Safety &amp; Scam Awareness Guide</a>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-step">
+        <h6>3 &middot; Confirm</h6>
+        <div class="form-stack">
+          <div id="auth-email-container" class="field" hx-get="/api/components/create-form-auth" hx-trigger="load" hx-swap="outerHTML">
+            <label for="email">Email</label>
+            <input class="input" id="email" type="email" name="email" required placeholder="Checking authentication…" readonly />
+          </div>
+          <div class="cf-turnstile" data-sitekey="{{ turnstileSiteKey }}"></div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Publish post</button>
+          </div>
+        </div>
+      </div>
+    </form>
   </div>
 
-  <label>Conference</label>
-  <select name="conference_id" hx-get="/api/components/conference-options" hx-trigger="load" hx-swap="innerHTML" onchange="document.getElementById('new-conference-fields').style.display = this.value === 'new' ? 'block' : 'none';">
-    <option value="new">Create New Conference</option>
-  </select>
-
-  <div id="new-conference-fields" style="display: none;">
-    <p class="form-notice">Please make sure you are not duplicating an already existing conference. Browse existing conferences before creating a new one.</p>
-    <label>New Conference Name</label>
-    <input type="text" name="new_conf_name" />
-    <label>Start Date</label>
-    <input type="date" name="new_conf_start" />
-    <label>End Date</label>
-    <input type="date" name="new_conf_end" />
-    <label>City</label>
-    <input type="text" name="new_conf_city" />
-    <label>State</label>
-    <input type="text" name="new_conf_state" />
-    <label>Subjects</label>
-    <select name="conf_tags" multiple size="6"
-            hx-get="/api/components/tag-options?blank=0"
-            hx-trigger="load"
-            hx-swap="innerHTML"></select>
-    <p class="field-hint">Hold Ctrl (or Cmd) to select more than one. Subjects let people find this conference from the nav and the search filter.</p>
-  </div>
-
-  <label>Post Title</label>
-  <input type="text" name="title" required />
-
-  <label>Description</label>
-  <textarea name="description" rows="6" required></textarea>
-
-  <div id="share-types-container" hx-get="/api/components/share-type-options" hx-trigger="load" hx-swap="innerHTML"></div>
-
-  <p class="form-disclaimer">Please make sure you are only posting information that you are comfortable making publicly available. Before arranging anything with another user, read our <a href="/safety" target="_blank">Safety &amp; Scam Awareness Guide</a>.</p>
-  <div class="cf-turnstile" data-sitekey="{{ turnstileSiteKey }}"></div>
-  <button type="submit">Submit</button>
-</form>
+  <aside class="aside-stack">
+    <div class="aside-section">
+      <h6>What makes a good post</h6>
+      <p class="aside-note">Your dates, the rough cost, whether you have already booked, and your field and institution. That last one is what makes you verifiable, and it is the first thing people check.</p>
+      <a href="/how-it-works#what-to-include" class="btn btn-secondary btn-block">See examples</a>
+    </div>
+    <div class="aside-section">
+      <h6>Before you post</h6>
+      <p class="aside-note">We don't screen anyone. Verify institutional affiliation, video call before you commit, and meet in a public place first. <a href="/safety">Safety &amp; Scam Awareness Guide</a></p>
+    </div>
+  </aside>
+</div>
 {% endblock %}

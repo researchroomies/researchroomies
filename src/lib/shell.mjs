@@ -35,6 +35,21 @@ const TURNSTILE_SCRIPT =
     '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
 
 /**
+ * Cormorant Garamond over Lora — the Classical pairing the stylesheet's
+ * `--font-heading` / `--font-body` name. Loaded here rather than with an
+ * `@import` at the top of style.css: an @import cannot begin fetching until the
+ * stylesheet itself has arrived, which serialises two round trips on the
+ * critical path. The preconnects overlap the font handshake with that fetch,
+ * and `display=swap` means the page never blocks on the faces themselves —
+ * style.css names local serif fallbacks in the same metrics-compatible family.
+ */
+const FONT_LINKS = [
+    '<link rel="preconnect" href="https://fonts.googleapis.com" />',
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&amp;family=Lora:wght@400;600&amp;display=swap" />',
+].join('\n  ');
+
+/**
  * Worker-rendered HTML is built by string concatenation, so every interpolated
  * value that could originate from a user MUST pass through this.
  *
@@ -100,6 +115,7 @@ export function renderShell({
         canonical ? `<meta property="og:url" content="${canonical}" />` : '',
         '<meta name="twitter:card" content="summary" />',
         canonical ? `<link rel="canonical" href="${canonical}" />` : '',
+        FONT_LINKS,
         '<link rel="stylesheet" href="/style/style.css" />',
         HTMX_SCRIPT,
         TURNSTILE_SCRIPT,
@@ -114,26 +130,34 @@ export function renderShell({
   ${headHtml}
 </head>
 <body>
-  <header>
-    <div class="logo-nav">
-      <h1><a href="/">ResearchRoomies</a></h1>
-      <nav>
-        <a href="/search" class="nav-link">Search</a>
-        <a href="/create" class="nav-link">Create Post</a>
-        <span id="nav-user-state" hx-get="/api/components/nav-user" hx-trigger="load" hx-swap="outerHTML"></span>
-        <span id="nav-subjects" hx-get="/api/components/nav-subjects" hx-trigger="load" hx-swap="outerHTML"></span>
-      </nav>
+  <header class="site-header">
+    <nav class="nav">
+      <a href="/" class="nav-brand">Research<span class="nav-brand-accent">Roomies</span></a>
+      <a href="/search" class="nav-link">Browse</a>
+      <a href="/conferences" class="nav-link">Conferences</a>
+      <a href="/create" class="nav-link">Create post</a>
+      <span class="nav-rule"></span>
+      <span id="nav-user-state" hx-get="/api/components/nav-user" hx-trigger="load" hx-swap="outerHTML"></span>
+    </nav>
+    <div class="subject-bar">
+      <span class="subject-bar-label">Subjects</span>
+      <span id="nav-subjects" hx-get="/api/components/nav-subjects" hx-trigger="load" hx-swap="outerHTML"></span>
     </div>
   </header>
 
-  <main>
+  <main class="site-main">
     ${content}
   </main>
 
   <footer>
-    <div class="fat-footer">
-      <p>© ${escapeHtml(year)} ResearchRoomies. All rights reserved.</p>
-      <a href="/about">About</a> | <a href="/safety">Safety</a> | <a href="/terms">Terms</a> | <a href="/privacy">Privacy</a>
+    <div class="site-footer">
+      <span>© ${escapeHtml(year)} ResearchRoomies.</span>
+      <a href="/about">About</a>
+      <a href="/how-it-works">How it works</a>
+      <a href="/safety">Safety</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <span class="footer-note">We introduce people and nothing more — we don't verify anyone. Read the <a href="/safety">Safety &amp; Scam Awareness Guide</a> before you arrange a room.</span>
     </div>
   </footer>
 </body>

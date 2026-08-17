@@ -31,15 +31,20 @@ export async function handleSubjectPage(
 
     const listHtml =
       results.length > 0
-        ? `<ul>${results
+        ? `<ul class="conference-index">${results
             .map(
               (conf) => `
           <li>
-            <a href="/conference/${encodeURIComponent(conf.slug)}">
-              <strong>${escapeHtml(conf.name)}</strong>
-            </a><br />
-            ${conf.location_address ? `${escapeHtml(conf.location_address)} · ` : ""}${formatDateRange(conf.start_time, conf.stop_time)}
-            · ${conf.post_count} post${conf.post_count === 1 ? "" : "s"}
+            <a href="/conference/${encodeURIComponent(conf.slug)}">${escapeHtml(conf.name)}</a>
+            <div class="card-meta">
+              ${conf.location_address ? `<span>${escapeHtml(conf.location_address)}</span>` : ""}
+              <span class="tnum">${formatDateRange(conf.start_time, conf.stop_time)}</span>
+              ${
+                conf.post_count === 0
+                  ? `<span>No posts yet</span>`
+                  : `<span class="count-open">${conf.post_count} post${conf.post_count === 1 ? "" : "s"}</span>`
+              }
+            </div>
           </li>
         `,
             )
@@ -47,10 +52,14 @@ export async function handleSubjectPage(
         : `<p class="empty-state">No conferences tagged ${escapeHtml(tag.name)} yet.</p>`;
 
     const content = `
-      <div class="site-page">
-        <h2>${escapeHtml(tag.name)} Conferences</h2>
-        ${listHtml}
+      <p class="breadcrumb"><a href="/conferences">Conferences</a> &nbsp;/&nbsp; ${escapeHtml(tag.name)}</p>
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">${escapeHtml(tag.name)}</h1>
+          <p class="page-lede">${results.length} conference${results.length === 1 ? "" : "s"} in this subject. <a href="/conferences">See every subject</a>.</p>
+        </div>
       </div>
+      ${listHtml}
     `;
 
     return pageResponse(`${tag.name} Conferences`, content, {

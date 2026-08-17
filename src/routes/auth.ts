@@ -28,7 +28,7 @@ export function magicLinkUrl(config: AppConfig, token: string): string {
 function callbackErrorPage(heading: string, body: string, status: number): Response {
     return pageResponse(
         heading,
-        `<div class="site-page"><h2>${heading}</h2><p>${body}</p></div>`,
+        `<div class="site-page"><h1>${heading}</h1><p>${body}</p></div>`,
         { status, cache: 'none' }
     );
 }

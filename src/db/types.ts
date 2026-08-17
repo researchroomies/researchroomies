@@ -84,10 +84,15 @@ export interface PostDetail {
 	id: number;
 	title: string;
 	description: string;
+	created_at: number;
 	user_id: number;
 	conference_id: number;
 	conference_name: string;
 	conference_slug: string;
+	/** The conference's, not the poster's — a post has no location of its own. */
+	location_address: string;
+	start_time: number;
+	stop_time: number;
 }
 
 /** Where an inquiry about a post gets delivered. */

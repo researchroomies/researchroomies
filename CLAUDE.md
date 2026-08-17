@@ -10,7 +10,8 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 - `src/index.ts` – Worker entry point: fetch handler, trailing-slash redirect, asset fallthrough. ~39 lines, no route list
 - `src/routes.ts` – the `ROUTES` table + `createRouter()`; the single declaration of what the Worker owns
 - `src/routes/` – one module per concern, none importing another:
-  - `conferences.ts` – `/conferences`, `/conference/:slug` + the featured-list fragment
+  - `conferences.ts` – `/conference/:slug` + the featured-list fragment
+  - `all-conferences.ts` – `/conferences`, grouped by subject
   - `subjects.ts` – `/subject/:slug`
   - `search.ts` – `/search`
   - `components.ts` – the `/api/components/*` HTMX fragments
@@ -22,6 +23,9 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
   - `flags.ts` – post reporting
 - `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `share-types`, `users`, `moderation`
 - `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`, `share-types` (the picker/badge/option markup)
+- `templates/style/style.css` – the only stylesheet: Classical tokens, then the
+  system's component classes, then the application layer. No framework, no build
+  step. See the styling section of AGENTS.md before touching it.
 - `templates/pages/` – Eleventy (Nunjucks) page templates
 - `templates/layouts/base.njk` – **generated** from `shell.mjs`; do not edit
 - `migrations/` – D1 migrations, applied in `NNNN_` order; **the only definition of the database**
@@ -130,10 +134,11 @@ description where nothing could filter or label it.
   well — badges on `/search` and `/post/:id`, `?share=carpool` returning the
   multi-type post and excluding the untyped one.
 
-**Open:** the conference page (`/conference/:slug`) lists posts through
-`listPostsForConference()` and does not show badges — it selects the narrow
-`Post` type and adding them is a widening that page does not otherwise need.
-Search, `/my-posts` and the post page all show them.
+**Closed by the Classical redesign (2026-08-17):** the conference page shows
+badges too. It keeps the narrow `Post` type — no widening — and reads them with
+one `listShareTypesForPosts()` call over the ids it already has, the same way
+`/search` does. That same map also supplies the share-type counts in the row
+above the list, so the badges and the counts cannot disagree.
 
 ---
 
@@ -145,17 +150,19 @@ conference name or a subject slug. `handleAllConferences` lives in
 `src/routes/conferences.ts` beside the singular page, which all three conference
 browsing surfaces now share.
 
-**That module is at 313 lines against `test/route-modules.test.ts`'s 320-line
-bound** — seven lines of headroom, so the next addition to it will fail the
-suite. It is not split now because it is not yet over and the seam is weak: an
+**That module was at 313 lines against `test/route-modules.test.ts`'s 320-line
+bound** — seven lines of headroom, so the next addition to it would fail the
+suite. It was left unsplit because it was not yet over and the seam was weak: an
 index, a detail page and a featured fragment are one concern in a way that
-`/my-posts` and post authoring were not. When it does go over, split it the way
-`my-posts.ts` was split — most likely `/conferences` and its grouping out to
-their own module — rather than raising the number.
+`/my-posts` and post authoring were not. The redesign was the next addition, and
+the split went the way this note called: `/conferences` and its grouping out to
+`src/routes/all-conferences.ts`, rather than raising the number.
 
-**Nothing links to it yet.** That is deliberate and was the request: a redesign
-is coming and the navigation is its problem. The page is registered, reachable
-and indexable in the meantime.
+**Nothing linked to it at first.** That was deliberate and was the request: a
+redesign was coming and the navigation was its problem. The Classical redesign
+(2026-08-17) put "Conferences" in the nav, so it is now a first-class browse
+surface; it also split the handler out to `src/routes/all-conferences.ts`,
+exactly as the size note below predicted.
 
 - **A conference with two subjects appears under both.** Subjects are a
   many-to-many, so one bucket per conference would mean inventing a "primary"
@@ -219,13 +226,111 @@ subjects, the untagged conference lands in the trailing group, counts read
 
 ---
 
-## Current State — updated 2026-08-12
+## The Classical redesign, 2026-08-17
+
+The whole site was restyled from the Claude Design mockup
+(`ResearchRoomies Restyle.dc.html`, project `a795def1`) onto the **Classical**
+design system: Cormorant Garamond over Lora on a warm near-white ground, a single
+gold accent applied as *stroke* rather than fill, hairline rules instead of boxes
+and shadows. `templates/style/style.css` was replaced wholesale — 380 lines of
+ad-hoc rules became a token block, the system's component layer, and an
+application layer, in that order and each building only on the ones above it.
+The layering and the container-class table are documented in AGENTS.md.
+
+**No framework, and no new JavaScript.** That was the explicit request and it
+held: the only script on the site is still HTMX and the Turnstile widget. Two
+things the mockup drew as interactive are links instead, because a link is the
+frameworkless answer:
+
+- **The search page's filter chips.** Each chip's "×" is a link back to
+  `/search` with that one parameter dropped. The page's entire state is already
+  in the query string, so removing a filter needs no script and no endpoint.
+- **The conference page's share-type row.** Rendered as `.seg-opt` links into
+  `/search?conference=…&share=…`. The counts are computed from the badges the
+  page has already loaded, so the row costs no extra query — but an in-page
+  filter would have needed either a script or a second fragment route.
+
+### What moved, and why
+
+- **`handleAllConferences` split into `src/routes/all-conferences.ts`.** The
+  previous section in this file predicted this: `conferences.ts` sat at 313
+  lines against `test/route-modules.test.ts`'s 320 bound, and named the seam to
+  cut when something was next added to it. The restyle was that something. Pure
+  move — grouping, rendering and handler — leaving `/conference/:slug` and the
+  featured fragment behind. `conferences.ts` is 254 after the restyle and
+  `all-conferences.ts` 212.
+- **`getPostWithConference()` widened** to select `posts.created_at` and the
+  conference's `location_address` / `start_time` / `stop_time`. The post page
+  now states them as a definition list beside the description, which is the
+  first thing a reader wants to know about a room share. The ownership guard and
+  the report form ignore the added columns — the same deliberate widening Task 3
+  made rather than keeping two near-identical shapes apart.
+- **`listFeaturedConferences()` gained a post count**, so a featured card can
+  say "9 open posts". As in `listAllConferences()`, `conference_tags` is
+  deliberately not joined in: it would fan the rows out one per
+  (conference, subject) pair and multiply the count.
+- **`listRecentPosts()` is new**, and is the one thing that distinguishes the
+  homepage feed from an unfiltered `searchPosts()`: that query sorts by
+  conference start date so a search reads as an itinerary, while the feed
+  answers "what has been posted lately" and sorts by `created_at DESC`.
+- **`/search` stopped fetching its own subject options over HTMX.** The page is
+  Worker-rendered, so both lists are one more `await` instead of two round
+  trips — and the chips need the *display names* anyway, which the fragment
+  never handed back. `/api/components/tag-options` stays: the static home and
+  create pages still use it.
+
+### What the mockup asked for and did not get
+
+The mockup's own "what this asks of the code" notes flagged these, and each was
+cut for the reason it gave rather than faked:
+
+- **"2 inquiries" per post on `/my-posts`, and dimming a post whose conference
+  has passed.** The first needs a count query over `message`, which is currently
+  write-only; the note said "or cut them". The page shows a real
+  "N posts · M for upcoming conferences" line computed from the rows it already
+  has instead.
+- **Per-kind counts on the featured cards** ("6 lodging · 3 carpool"). The total
+  is there; the breakdown would be a query per card. The conference page shows
+  the breakdown, where it is free.
+- **"Email me when new posts appear"** — there is no subscription concept in the
+  schema, and inventing a button that does nothing is worse than omitting it.
+- **A post `kind` column.** Share types already are that, as a many-to-many, and
+  the mockup's later section is caught up to them.
+
+### Chrome changes
+
+`renderShell()` now renders `<header class="site-header">` with a `.nav` row —
+brand, Browse, Conferences, Create post, then the account fragment — over a
+subject strip carrying `#nav-subjects`. **`/conferences` is finally linked**,
+which the all-conferences section left as the redesign's problem. The footer
+gained How it works and the standing "we introduce people and nothing more"
+line. `test/shell.test.ts` slices `<head>` and `<footer>` by their bare tag
+names, so both must stay attribute-free — the classes go on a wrapper inside.
+
+### Cover
+
+All 447 tests pass unchanged except `test/all-conferences.test.ts`, whose HTML
+parsers keyed on `<h3>` headings and a `· N posts` separator that the new markup
+does not have. The assertions are the same; only the selectors moved. One
+behaviour did change with it: a conference with no posts now reads
+"No posts yet" rather than "0 posts", because the count is the reason to click
+through and a conference nobody has posted for should say so in words.
+
+**Verified end to end against `wrangler dev`** on a seeded local D1 — every page
+and fragment at 200, the filter chips each dropping their own parameter, the
+share-type counts matching the badges, `/my-posts` and the edit/delete/report
+forms behind a minted session cookie, and the static pages through the real
+asset router.
+
+---
+
+## Current State — updated 2026-08-17
 
 Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **All six refactor tasks have landed** (see `docs/refactor/`, now closed).
 
-Suite is **436 tests across 15 files** (373 across 12 at the close of the
-refactor; share types and the all-conferences index added the rest), up from 21
-across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Suite is **447 tests across 15 files** (373 across 12 at the close of the
+refactor; share types, the all-conferences index and the redesign added the
+rest), up from 21 across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Trailing-slash 404 on every Worker route — fixed 2026-08-10
 
@@ -510,7 +615,7 @@ The gate is implemented and off by default, so this is now a config decision rat
 - **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
 - **`www.researchroomies.com` returns 522 for every path.** Only the apex is bound: `[[routes]]` in `wrangler.toml` has `pattern = "researchroomies.com"` with no `www` record or redirect. Found while diagnosing the search report; unrelated to search, but any inbound `www` link is currently dead.
 - **Subject filtering matches nothing on production.** `/search?tag=cs` returns 0 of 4 posts. Tags are only ever written in the "Create New Conference" branch of `handleCreatePost`, so conferences that predate the feature — or that were reused rather than created — can never be tagged, and there is no UI to tag one afterwards. Needs conference editing (below) to be fixable by users. **`/conferences` now makes the size of this visible** — everything untaggable lands in its trailing "No subject yet" group, so that group's length is a direct read on how much of the table the subject filters cannot see.
-- **The homepage's featured-conference list is still HTMX-loaded.** `templates/pages/index.njk` fetches `/api/featured-conferences` on load, so crawlers see the homepage copy but none of the conference links. Smaller than the `/post/:id` case just fixed — the page has real content of its own and the same conferences are reachable from `/search` and `/subject/:slug` — but it is the last place where indexable links exist only after JS runs. Fixing it means either server-rendering `/` (it is currently a static asset) or accepting the gap.
+- **The homepage's two lists are still HTMX-loaded**, and the redesign added a second one. `templates/pages/index.njk` fetches `/api/featured-conferences` and `/api/components/recent-posts` on load, so crawlers see the homepage copy but neither the conference links nor the post links. The redesign deliberately did not fix this — it is a rendering-model change, not a styling one — but it did raise the stakes: the feed is now the larger half of the page. `/conferences` is in the nav and fully server-rendered, so every conference is still reachable without JS; the post links are the remaining gap. Fixing it means server-rendering `/` (it is currently a static asset) or accepting it.
 - **`/api/components/post/:id` has no caller.** `templates/pages/post.njk` was its only consumer and is deleted; `/post/:id` is server-rendered. The route is kept registered on purpose so an old shell still cached in a browser degrades to a working page instead of a dead `hx-get`. It shares `renderPostDetail()` with `handlePostPage` and now sits in the same file (`src/routes/post-detail.ts`), so it costs nothing to keep in sync. Safe to delete once the cache window has passed — assets are served with Cloudflare's defaults and the HTML shell is long gone from `public/`, so a few weeks is generous. Deleting it means removing the handler from `post-detail.ts`, its entry in `ROUTES` (`src/routes.ts`), and the row in the AGENTS.md route table. `test/assets.test.ts` and `test/route-modules.test.ts` both read `ROUTES`, so nothing else needs updating — but remove it from *both* places or the latter fails on a handler exported and never registered.
 - **Post creation is not atomic (known limit).** Creating a post against a *new* conference is three separate writes: conference insert, tag batch, post insert. If the post insert fails, the conference survives as an orphan and holds its slug, so the user's retry gets `-2` appended to it. `batch()` cannot fix this — the post insert needs the id the conference insert `RETURNING`s, and `batch()` has no way to pipe one statement's output into the next. A real fix needs either a different API shape or a periodic sweep of conferences with zero posts. Recorded in the `src/db/conferences.ts` module doc, with a pointer from the `conferenceId === "new"` branch in `handleCreatePost`.
 - **Moderation review.** `flags` rows are written and emailed to `admin@researchroomies.com`, but there is no in-app review UI. That needs an admin concept (`users.is_admin` or similar), which the schema does not have.

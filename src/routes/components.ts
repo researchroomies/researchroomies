@@ -1,9 +1,11 @@
 import { optionalUser, requireUser } from "../lib/guards";
-import { escapeHtml } from "../lib/html";
+import { escapeHtml, formatDay, formatYear, summarize } from "../lib/html";
 import { fragmentResponse } from "../lib/response";
 import { listConferences } from "../db/conferences";
 import { listTags } from "../db/tags";
-import { renderShareTypePicker } from "../lib/share-types";
+import { listRecentPosts } from "../db/posts";
+import { listShareTypesForPosts } from "../db/share-types";
+import { renderShareTypePicker, shareTypeBadges } from "../lib/share-types";
 
 /**
  * `/api/components/*` — HTMX fragments: raw HTML, never JSON, never a full page.
@@ -29,7 +31,7 @@ export async function handleComponentCreateFormAuth(
   if (!guard.ok) return guard.response;
   const user = guard.value;
 
-  const html = `<div id="auth-email-container"><label>Email</label><input type="email" name="email" value="${escapeHtml(user.email)}" readonly /></div>`;
+  const html = `<div id="auth-email-container" class="field"><label>Email</label><input class="input" type="email" name="email" value="${escapeHtml(user.email)}" readonly /></div>`;
   // Contains the viewer's own email address — private is the default here.
   return fragmentResponse(html);
 }
@@ -140,6 +142,76 @@ export async function handleComponentShareTypeOptions(
   return fragmentResponse(html, { cache: "public-long" });
 }
 
+/** How many posts the homepage feed shows before deferring to `/search`. */
+const FEED_LIMIT = 6;
+
+/**
+ * The homepage's "recent posts, all conferences" feed.
+ *
+ * Each row is led by a date rail carrying the *conference's* opening date, not
+ * the post's — that is the date a reader is scanning for, and the post's own
+ * `created_at` is already in the meta line as "Posted …". The rail says which
+ * trip this is about; the meta line says how fresh the offer is.
+ *
+ * Badges come from one `listShareTypesForPosts()` call for the whole feed
+ * rather than one query per row, the same rule `/search` follows.
+ */
+export async function handleComponentRecentPosts(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  try {
+    const posts = await listRecentPosts(env, FEED_LIMIT);
+
+    if (posts.length === 0) {
+      return fragmentResponse(
+        `<p class="empty-state">No posts yet. <a href="/create">Create the first one</a>.</p>`,
+        { cache: "public-short" },
+      );
+    }
+
+    const shareTypes = await listShareTypesForPosts(
+      env,
+      posts.map((post) => post.id),
+    );
+
+    const rows = posts
+      .map(
+        (post) => `
+        <article class="feed-item">
+          <div class="feed-date">
+            <div class="feed-date-day">${escapeHtml(formatDay(post.start_time))}</div>
+            <div class="feed-date-year">${escapeHtml(formatYear(post.start_time))}</div>
+          </div>
+          <div>
+            <div class="card-kicker">${escapeHtml(post.conference_name)}${post.location_address ? ` · ${escapeHtml(post.location_address)}` : ""}</div>
+            <h3 class="listing-title"><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+            <p class="listing-excerpt">${escapeHtml(summarize(post.description, 180))}</p>
+            ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
+            <div class="listing-meta">
+              <a href="/conference/${encodeURIComponent(post.conference_slug)}">All posts for this conference</a>
+            </div>
+          </div>
+        </article>
+      `,
+      )
+      .join("");
+
+    const html = `${rows}
+      <div class="listing-more"><a href="/search" class="btn btn-secondary">Show more posts</a></div>`;
+
+    // The same list for everyone, and it changes only when someone posts.
+    return fragmentResponse(html, { cache: "public-short" });
+  } catch (error) {
+    console.error("Error loading recent posts:", error);
+    return fragmentResponse(
+      `<p class="empty-state">Could not load recent posts. <a href="/search">Search instead</a>.</p>`,
+      { status: 500, cache: "none" },
+    );
+  }
+}
+
 export async function handleComponentNavUser(
   request: Request,
   env: Env,
@@ -148,8 +220,8 @@ export async function handleComponentNavUser(
   const user = await optionalUser(request, env);
 
   const html = user
-    ? `<a href="/my-posts" class="nav-link">My Posts</a> <a href="#" hx-post="/api/auth/logout" class="nav-link">Logout</a>`
-    : `<a href="/login" class="nav-link">Login</a>`;
+    ? `<a href="/my-posts" class="nav-link">My posts</a> <a href="#" hx-post="/api/auth/logout" class="nav-link">Sign out</a>`
+    : `<a href="/login" class="nav-link">Sign in</a>`;
 
   // The whole point of this fragment is that it differs per session. It must
   // never be cached publicly — which is why 'private' is the default.

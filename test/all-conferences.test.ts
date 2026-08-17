@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createExecutionContext } from 'cloudflare:test';
-import { handleAllConferences } from '../src/routes/conferences';
+import { handleAllConferences } from '../src/routes/all-conferences';
 import { tagConference } from '../src/db/tags';
 import { listAllConferences } from '../src/db/conferences';
 import { resetDatabase, seedConference, seedPost, seedUser, testEnv, testRequest } from './helpers/seed';
@@ -33,19 +33,25 @@ interface RenderedGroup {
 /** The rendered page as its group structure: heading text, then the conference slugs under it. */
 function parseGroups(html: string): RenderedGroup[] {
 	return html
-		.split('<section class="subject-group">')
+		.split('<section class="subject-group"')
 		.slice(1)
 		.map((section) => ({
 			// The heading is a link for a real subject and bare text for the untagged group.
-			heading: (section.match(/<h3>(?:\s*<a[^>]*>)?([^<]+)/)?.[1] ?? '').trim(),
+			heading: (section.match(/<h2>(?:\s*<a[^>]*>)?([^<]+)/)?.[1] ?? '').trim(),
 			slugs: [...section.matchAll(/href="\/conference\/([^"]+)"/g)].map((match) => match[1]),
 		}));
 }
 
-/** The "N posts" text rendered for one conference. */
+/**
+ * The post-count text rendered for one conference.
+ *
+ * Zero reads "No posts yet" rather than "0 posts" — the count is the reason to
+ * click through, and a conference nobody has posted for should say so in words.
+ * Both forms come back from here so the caller asserts on what is on the page.
+ */
 function postCountFor(html: string, slug: string): string {
 	const item = html.split(`href="/conference/${slug}"`)[1] ?? '';
-	return (item.match(/·\s*(\d+ posts?)/)?.[1] ?? '').trim();
+	return (item.match(/<span(?: class="count-open")?>(No posts yet|\d+ posts?)<\/span>/)?.[1] ?? '').trim();
 }
 
 async function page(): Promise<{ status: number; html: string; response: Response }> {
@@ -194,11 +200,11 @@ describe('post counts', () => {
 		const { html } = await page();
 
 		expect(postCountFor(html, 'comp-bio')).toBe('3 posts');
-		// Same number wherever it is listed.
-		expect([...html.matchAll(/·\s*3 posts/g)]).toHaveLength(3);
+		// Same number wherever it is listed — once under each of its three subjects.
+		expect([...html.matchAll(/>3 posts</g)]).toHaveLength(3);
 	});
 
-	it('shows zero for a conference with no posts, and singular for one', async () => {
+	it('says so for a conference with no posts, and sets the count singular for one', async () => {
 		const userId = await seedUser('prof@university.edu');
 		const empty = await seedConference({ userId, name: 'Empty', slug: 'empty', start: '2026-06-01', stop: '2026-06-02' });
 		const single = await seedConference({ userId, name: 'Single', slug: 'single', start: '2026-07-01', stop: '2026-07-02' });
@@ -208,7 +214,7 @@ describe('post counts', () => {
 
 		const { html } = await page();
 
-		expect(postCountFor(html, 'empty')).toBe('0 posts');
+		expect(postCountFor(html, 'empty')).toBe('No posts yet');
 		expect(postCountFor(html, 'single')).toBe('1 post');
 	});
 });
@@ -223,7 +229,7 @@ describe('the page itself', () => {
 		expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
 		expect(response.headers.get('Cache-Control')).toBe('public, max-age=300');
 		expect(html).toContain('<!DOCTYPE html>');
-		expect(html).toContain('<title>All Conferences – ResearchRoomies</title>');
+		expect(html).toContain('<title>All conferences – ResearchRoomies</title>');
 	});
 
 	it('carries a description and a canonical URL', async () => {

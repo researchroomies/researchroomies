@@ -76,7 +76,7 @@ export function notFoundPage(what = 'Page'): Response {
 	const heading = `${escapeHtml(what)} Not Found`;
 	return pageResponse(
 		`${what} Not Found`,
-		`<div class="site-page"><h2>${heading}</h2><p>The requested ${escapeHtml(what.toLowerCase())} could not be found. <a href="/search">Browse all posts</a> instead.</p></div>`,
+		`<div class="site-page"><h1>${heading}</h1><p>The requested ${escapeHtml(what.toLowerCase())} could not be found. <a href="/search">Browse all posts</a> instead.</p></div>`,
 		{ status: 404, cache: 'none' },
 	);
 }
@@ -85,7 +85,7 @@ export function notFoundPage(what = 'Page'): Response {
 export function forbiddenPage(reason = 'You do not have permission to do that.'): Response {
 	return pageResponse(
 		'Forbidden',
-		`<div class="site-page"><h2>Forbidden</h2><p>${escapeHtml(reason)}</p></div>`,
+		`<div class="site-page"><h1>Forbidden</h1><p>${escapeHtml(reason)}</p></div>`,
 		{ status: 403, cache: 'none' },
 	);
 }
@@ -100,7 +100,7 @@ export function forbiddenPage(reason = 'You do not have permission to do that.')
 export function errorPage(): Response {
 	return pageResponse(
 		'Error',
-		`<div class="site-page"><h2>Error</h2><p>Something went wrong. Please try again later.</p></div>`,
+		`<div class="site-page"><h1>Error</h1><p>Something went wrong. Please try again later.</p></div>`,
 		{ status: 500, cache: 'none' },
 	);
 }
