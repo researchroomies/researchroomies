@@ -297,6 +297,23 @@ cut for the reason it gave rather than faked:
 - **A post `kind` column.** Share types already are that, as a many-to-many, and
   the mockup's later section is caught up to them.
 
+### Two fixes after the first look
+
+- **The wordmark rendered at 14px**, the same size as "Browse" beside it. `.nav a`
+  sets `font-size: 14px` and is both later in the stylesheet and one specificity
+  point above a bare `.nav-brand`, so the brand's own 22px never applied. It is
+  `.nav a.nav-brand` at 28px now, with a comment saying why the qualifier is
+  load-bearing — this is the failure mode where the rule looks correct in the
+  file and is simply never used.
+- **The homepage's featured section was mislabelled** "Conferences with open
+  posts". It has always been `is_featured = 1` — an admin's curated shortlist,
+  set by hand in D1 — and the two are not the same set in either direction: a
+  featured conference may have no posts, and most conferences with posts are not
+  featured. The heading now reads "Featured conferences" with a line pointing at
+  `/conferences` for the complete list. The featuring mechanism (and the exact
+  `wrangler d1 execute` to use, since there is no admin UI) is written down in
+  the `conferences` table section of AGENTS.md.
+
 ### Chrome changes
 
 `renderShell()` now renders `<header class="site-header">` with a `.nav` row —

@@ -13,10 +13,17 @@ description: Find academics attending the same conference and share hotel rooms,
 </div>
 
 <section>
+  {# These are the conferences an admin has set `is_featured = 1` on — a curated
+     shortlist, NOT "every conference that has posts". The heading has to say
+     which, because a featured conference with no posts yet is a normal and
+     deliberate state: featuring one ahead of its call for participation is how
+     the first person finds somewhere to post. `/conferences` is the complete
+     list. See the featuring note in AGENTS.md. #}
   <div class="section-head">
-    <h2>Conferences with open posts</h2>
+    <h2>Featured conferences</h2>
     <a href="/conferences" class="section-head-aside">All conferences</a>
   </div>
+  <p class="page-lede">A few we're keeping an eye on. Every conference on the site is on the <a href="/conferences">full list</a>.</p>
   {# Featured conferences are the largest thing on the page, so they load first
      and the feed below waits its turn. Both are HTMX fragments because this
      page is a static Eleventy asset — see the backlog note in CLAUDE.md. #}

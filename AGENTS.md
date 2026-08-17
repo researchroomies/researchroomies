@@ -319,6 +319,25 @@ Rules that hold inside `src/db/`:
 **`conferences`** — academic conferences  
 `id, user_id (creator), name, slug (unique url-safe), location_address (text), city_id (FK→cities, unused in UI), start_time (unix), stop_time (unix), description, created_at (unix), is_featured (0/1)`
 
+> **Featuring a conference is a manual D1 write, and that is the whole
+> mechanism.** `is_featured = 1` is what puts a conference on the homepage's
+> "Featured conferences" grid, via `listFeaturedConferences()`. There is no
+> admin UI — the site has no admin concept at all (see the moderation item in
+> the CLAUDE.md backlog) — so it is set by hand:
+>
+> ```bash
+> npx wrangler d1 execute research-roomies --remote \
+>   --command "UPDATE conferences SET is_featured = 1 WHERE slug = 'joint-mathematics-meetings'"
+> ```
+>
+> Use `--local` against the dev database. `0` unfeatures. Nothing writes this
+> column except a human: `createConference()` inserts `0` unconditionally, so a
+> conference is never featured by being created. `listFeaturedConferences()`
+> orders by `created_at DESC` and takes at most 10; the homepage grid is three
+> across, so a shortlist of 3 or 6 fills the row cleanly. Featuring a conference
+> that has no posts yet is normal and is often the point — it is how the first
+> person finds somewhere to post.
+
 **`posts`** — user posts seeking travel partners  
 `id, user_id (FK→users), conference_id (FK→conferences), title, description, created_at (unix)`
 

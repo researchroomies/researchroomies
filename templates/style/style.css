@@ -430,10 +430,15 @@ a.tag-outline:hover {
     gap: var(--space-4);
 }
 
-.nav-brand {
+/* `.nav a` below also matches the brand and is both later in the file and one
+   specificity point higher, so a bare `.nav-brand` rule loses its font-size and
+   the wordmark renders at the same 14px as "Browse" and "Conferences". The
+   `a.nav-brand` qualifier is what makes this win; do not simplify it back. */
+.nav a.nav-brand {
     font-family: var(--font-heading);
     font-weight: var(--font-heading-weight);
-    font-size: 22px;
+    font-size: 28px;
+    line-height: 1.1;
     letter-spacing: -0.02em;
     margin-right: auto;
     color: inherit;
@@ -1125,6 +1130,11 @@ footer {
     margin: 0;
 }
 
+/* A lede directly under a section head sits tighter than a page lede does. */
+.section-head + .page-lede {
+    margin: calc(var(--space-3) * -1) 0 var(--space-4);
+}
+
 .section-head-aside {
     margin-left: auto;
     font-size: 13px;
@@ -1457,6 +1467,10 @@ footer {
 }
 
 @media (max-width: 620px) {
+    .nav a.nav-brand {
+        font-size: 24px;
+    }
+
     .page-title {
         font-size: 30px;
     }
