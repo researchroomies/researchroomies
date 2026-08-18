@@ -74,6 +74,11 @@ description: Post a request to share a hotel room, rental car, or other conferen
              database, so the create form and the edit form cannot drift. #}
           <div id="share-types-container" hx-get="/api/components/share-type-options" hx-trigger="load" hx-swap="innerHTML"></div>
 
+          {# Position and institution, from the same curated list the edit form
+             reads. Both are required; the server rejects a post without them,
+             so a failure to load this fragment says so rather than degrading. #}
+          <div id="position-fields-container" hx-get="/api/components/position-fields" hx-trigger="load" hx-swap="innerHTML"></div>
+
           <div class="field">
             <label for="title">Post title</label>
             <input class="input" id="title" type="text" name="title" placeholder="Splitting a queen room near the convention center" required />

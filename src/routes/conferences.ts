@@ -13,6 +13,7 @@ import { listPostsForConference } from "../db/posts";
 import { listTagsForConference } from "../db/tags";
 import { listShareTypesForPosts } from "../db/share-types";
 import { shareTypeBadges } from "../lib/share-types";
+import { authorLine } from "../lib/positions";
 import type {
   Conference,
   ConferenceWithPostCount,
@@ -123,6 +124,7 @@ function renderPostList(
       (post) => `
         <article class="listing-item">
           <h3 class="listing-title"><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+          ${authorLine(post)}
           ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
           <p class="listing-excerpt">${escapeHtml(summarize(post.description, 180))}</p>
           <div class="listing-meta">

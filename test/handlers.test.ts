@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createExecutionContext, fetchMock } from 'cloudflare:test';
 import {
-	handleCreatePost,
 	handleDeletePostSubmit,
 	handleEditPostSubmit,
 } from '../src/routes/posts';
+import { handleCreatePost } from '../src/routes/create-post';
 import { handleMyPosts } from '../src/routes/my-posts';
 import { handlePostPage } from '../src/routes/post-detail';
 import { getPost, getPostWithConference } from '../src/db/posts';
@@ -74,6 +74,8 @@ describe('handleCreatePost', () => {
 			testRequest('/api/posts/create', {
 				cookie,
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: String(conferenceId),
 					title: 'Roommate wanted',
 					description: 'Sharing a hotel room near the venue',
@@ -109,6 +111,8 @@ describe('handleCreatePost', () => {
 			testRequest('/api/posts/create', {
 				cookie,
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: 'new',
 					title: 'Carpool',
 					description: 'Driving up Monday',
@@ -150,6 +154,8 @@ describe('handleCreatePost', () => {
 			testRequest('/api/posts/create', {
 				cookie,
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: 'new',
 					title: 'Carpool',
 					description: 'Driving up Monday',
@@ -180,6 +186,8 @@ describe('handleCreatePost', () => {
 			testRequest('/api/posts/create', {
 				cookie,
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: 'new',
 					title: 'Carpool',
 					description: 'Driving up Monday',
@@ -208,6 +216,8 @@ describe('handleCreatePost', () => {
 			testRequest('/api/posts/create', {
 				cookie,
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: String(conferenceId),
 					title: 'Roommate wanted',
 					description: 'Sharing a hotel room',
@@ -231,6 +241,8 @@ describe('handleCreatePost', () => {
 			testRequest('/api/posts/create', {
 				cookie,
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: String(conferenceId),
 					title: 'Roommate wanted',
 					description: 'Sharing a hotel room',
@@ -250,6 +262,8 @@ describe('handleCreatePost', () => {
 		const response = await handleCreatePost(
 			testRequest('/api/posts/create', {
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: String(conferenceId),
 					title: 'Roommate wanted',
 					description: 'Sharing a hotel room',
@@ -342,7 +356,7 @@ describe('handleEditPostSubmit', () => {
 		const response = await handleEditPostSubmit(
 			testRequest(`/post/${postId}/edit`, {
 				cookie: ownerCookie,
-				form: { title: 'Updated title', description: 'Updated description' },
+				form: { position_slug: 'professor', institution: 'State University', title: 'Updated title', description: 'Updated description'  },
 			}),
 			testEnv,
 			ctx(),
@@ -363,7 +377,7 @@ describe('handleEditPostSubmit', () => {
 		const response = await handleEditPostSubmit(
 			testRequest(`/post/${postId}/edit`, {
 				cookie: strangerCookie,
-				form: { title: 'Hijacked', description: 'Hijacked' },
+				form: { position_slug: 'professor', institution: 'State University', title: 'Hijacked', description: 'Hijacked'  },
 			}),
 			testEnv,
 			ctx(),
@@ -380,7 +394,7 @@ describe('handleEditPostSubmit', () => {
 		const response = await handleEditPostSubmit(
 			testRequest('/post/9999/edit', {
 				cookie: ownerCookie,
-				form: { title: 'x', description: 'y' },
+				form: { position_slug: 'professor', institution: 'State University', title: 'x', description: 'y'  },
 			}),
 			testEnv,
 			ctx(),
@@ -397,7 +411,7 @@ describe('handleEditPostSubmit', () => {
 		const response = await handleEditPostSubmit(
 			testRequest(`/post/${postId}abc/edit`, {
 				cookie: ownerCookie,
-				form: { title: 'Hijacked', description: 'Hijacked' },
+				form: { position_slug: 'professor', institution: 'State University', title: 'Hijacked', description: 'Hijacked'  },
 			}),
 			testEnv,
 			ctx(),
@@ -414,7 +428,7 @@ describe('handleEditPostSubmit', () => {
 		const response = await handleEditPostSubmit(
 			testRequest(`/post/${postId}/edit`, {
 				cookie: ownerCookie,
-				form: { title: '   ', description: 'Updated description' },
+				form: { position_slug: 'professor', institution: 'State University', title: '   ', description: 'Updated description'  },
 			}),
 			testEnv,
 			ctx(),

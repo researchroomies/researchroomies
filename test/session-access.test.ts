@@ -96,7 +96,10 @@ describe('B. ownership is checked by the guard, not by hand', () => {
 		// guard makes these clauses redundant, not wrong — a bug in it must not
 		// become a way to edit or delete someone else's post.
 		const source = code('src/db/posts.ts');
-		expect(source).toMatch(/UPDATE posts SET .* WHERE id = \? AND user_id = \?/);
+		// `[\s\S]*?` rather than `.*`: the UPDATE gained columns and wrapped onto
+		// several lines when position and institution became editable. The clause
+		// being asserted did not move — only the selector had to.
+		expect(source).toMatch(/UPDATE\s+posts\s+SET [\s\S]*?WHERE id = \? AND user_id = \?/);
 		expect(source).toMatch(/DELETE FROM posts WHERE id = \? AND user_id = \?/);
 	});
 

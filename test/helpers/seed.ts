@@ -39,21 +39,33 @@ const MIGRATIONS = import.meta.glob('../../migrations/*.sql', {
 }) as Record<string, string>;
 
 /** `;` also appears inside `--` comments, so strip those before splitting. */
-const SCHEMA_STATEMENTS = Object.keys(MIGRATIONS)
-	.sort()
-	.map((path) => MIGRATIONS[path])
-	.join('\n')
-	.replace(/^\s*--.*$/gm, '')
-	.split(';')
-	.map((statement) => statement.trim())
-	.filter(Boolean);
+function statementsIn(sql: string): string[] {
+	return sql
+		.replace(/^\s*--.*$/gm, '')
+		.split(';')
+		.map((statement) => statement.trim())
+		.filter(Boolean);
+}
 
 /**
- * Session secret for the tests, replacing whatever `.dev.vars` holds.
+ * The chain as files, newest last — not one concatenated blob.
  *
- * `.dev.vars` carries live production secrets; nothing in the suite may depend
- * on its contents, and nothing here may reach a real third party.
+ * A migration is applied at most once per database here, recorded in the same
+ * `d1_migrations` table `wrangler d1 migrations apply` uses, because that is
+ * what the real thing does and because re-running is not harmless. Every
+ * statement up to 0003 was `CREATE TABLE IF NOT EXISTS` or an upsert, so a blob
+ * re-applied on each reset happened to be a no-op; `ALTER TABLE ... ADD COLUMN`
+ * has no `IF NOT EXISTS` form and fails outright the second time. Tracking is
+ * the honest fix: production applies each file once, so the tests do too.
+ *
+ * The tracking table lives in the same storage as the schema, so whichever way
+ * the pool's isolation is configured the two are rolled back together and can
+ * never disagree.
  */
+const MIGRATION_FILES = Object.keys(MIGRATIONS)
+	.sort()
+	.map((path) => ({ name: path.split('/').pop() as string, statements: statementsIn(MIGRATIONS[path]) }));
+
 const TEST_SECRET = 'test-secret-must-be-at-least-32-chars-long-so-here-is-some-padding';
 
 export const testEnv: Env = {
@@ -63,17 +75,27 @@ export const testEnv: Env = {
 };
 
 /**
- * Applies the schema and empties every table the tests write to.
+ * Applies any unapplied migration and empties every table the tests write to.
  *
- * The schema file is idempotent, and the deletes make each test independent of
- * whatever ran before it regardless of how the pool's storage isolation is
- * configured. `tags` and `share_types` keep their seeded rows — they are curated
- * lists, not test data.
+ * The deletes make each test independent of whatever ran before it regardless
+ * of how the pool's storage isolation is configured. `tags`, `share_types` and
+ * `positions` keep their seeded rows — they are curated lists, not test data.
  */
 export async function resetDatabase(): Promise<void> {
-	for (const statement of SCHEMA_STATEMENTS) {
-		await env.DB.prepare(statement).run();
+	await env.DB.prepare(
+		`CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
+	).run();
+	const { results } = await env.DB.prepare(`SELECT name FROM d1_migrations`).all<{ name: string }>();
+	const applied = new Set((results ?? []).map((row) => row.name));
+
+	for (const migration of MIGRATION_FILES) {
+		if (applied.has(migration.name)) continue;
+		for (const statement of migration.statements) {
+			await env.DB.prepare(statement).run();
+		}
+		await env.DB.prepare(`INSERT INTO d1_migrations (name) VALUES (?)`).bind(migration.name).run();
 	}
+
 	await env.DB.batch([
 		env.DB.prepare('DELETE FROM flags'),
 		env.DB.prepare('DELETE FROM message'),
@@ -113,12 +135,23 @@ export async function seedConference(input: {
 	});
 }
 
+/**
+ * A post. Position and institution default to null, i.e. to a post written
+ * before those fields existed.
+ *
+ * That is the deliberate default rather than a convenience: the columns are
+ * nullable precisely because production is full of such rows, and a fixture
+ * that always filled them in would let a renderer that cannot survive a null
+ * pass the whole suite.
+ */
 export async function seedPost(input: {
 	userId: number;
 	conferenceId: number;
 	title: string;
 	description: string;
 	createdAt?: number;
+	position?: { slug: string; other: string | null } | null;
+	institution?: string | null;
 }): Promise<number> {
 	return await createPost(testEnv, {
 		userId: input.userId,
@@ -126,6 +159,8 @@ export async function seedPost(input: {
 		title: input.title,
 		description: input.description,
 		createdAt: input.createdAt ?? ts('2026-01-02'),
+		position: input.position ?? null,
+		institution: input.institution ?? null,
 	});
 }
 

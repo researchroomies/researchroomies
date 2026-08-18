@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createExecutionContext, fetchMock } from 'cloudflare:test';
-import { handleCreatePost, handleEditPostForm, handleEditPostSubmit } from '../src/routes/posts';
+import { handleEditPostForm, handleEditPostSubmit } from '../src/routes/posts';
+import { handleCreatePost } from '../src/routes/create-post';
 import { handlePostPage } from '../src/routes/post-detail';
 import { handleSearch } from '../src/routes/search';
 import { listShareTypesForPost, listShareTypesForPosts, setShareTypesForPost } from '../src/db/share-types';
@@ -63,6 +64,8 @@ describe('a post can offer several things at once', () => {
 			testRequest('/api/post', {
 				cookie: await sessionCookie(userId),
 				form: {
+					position_slug: 'professor',
+					institution: 'State University',
 					conference_id: String(conferenceId),
 					title: 'Room and a ride',
 					description: 'Splitting a double, and I have two seats in the car.',
@@ -176,7 +179,7 @@ describe('the write replaces the set', () => {
 		await handleEditPostSubmit(
 			testRequest(`/post/${postId}/edit`, {
 				cookie: await sessionCookie(userId),
-				form: { title: 'Shrinking', description: 'x', share_types: ['lodging'] },
+				form: { position_slug: 'professor', institution: 'State University', title: 'Shrinking', description: 'x', share_types: ['lodging'] },
 			}),
 			testEnv,
 			ctx(),
@@ -196,7 +199,7 @@ describe('the write replaces the set', () => {
 		await handleEditPostSubmit(
 			testRequest(`/post/${postId}/edit`, {
 				cookie: await sessionCookie(userId),
-				form: { title: 'Emptying', description: 'x' },
+				form: { position_slug: 'professor', institution: 'State University', title: 'Emptying', description: 'x' },
 			}),
 			testEnv,
 			ctx(),

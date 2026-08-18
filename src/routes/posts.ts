@@ -1,141 +1,32 @@
 import { sessionUserId } from "../lib/session";
 import { escapeHtml } from "../lib/html";
 import { errorPage, pageResponse } from "../lib/response";
-import { requireOwnedPost, requireUser } from "../lib/guards";
-import { verifyTurnstile } from "../lib/turnstile";
-import { parseRouteId } from "../lib/params";
-import { createPost, deletePostAndFlags, updatePost } from "../db/posts";
-import { createConference, reserveSlug } from "../db/conferences";
-import { tagConference } from "../db/tags";
+import { requireOwnedPost } from "../lib/guards";
+import { deletePostAndFlags, updatePost } from "../db/posts";
 import { setShareTypesForPost } from "../db/share-types";
-import {
-  renderShareTypePicker,
-  submittedShareTypes,
-} from "../lib/share-types";
+import { renderShareTypePicker, submittedShareTypes } from "../lib/share-types";
+import { readAuthorFields, renderAuthorFields } from "../lib/positions";
 
 /**
- * Authoring a post: create, edit, delete. Every handler here requires a session
- * and changes a post; the *reading* side, which renders for anonymous viewers
- * too, is in post-detail.ts, and the author's own listing is in my-posts.ts.
+ * Changing a post you already own: edit and delete.
  *
- * The four ownership handlers are each "session → parse id → fetch post →
- * compare user_id", which used to be written out four times. `requireOwnedPost()`
- * is that sequence; its 302 / 404 / 403 responses are the ones these handlers
- * returned by hand, and it catches its own D1 errors, so none of them needs a
- * `try` around the lookup.
+ * The seam against create-post.ts is `requireOwnedPost()`. Every handler here
+ * starts from a post that exists and belongs to the caller, and touches nothing
+ * but that post; creating one starts from a session and may write a conference,
+ * its subjects and a post before it is done. Adding the position and institution
+ * fields pushed the combined file to 360 lines, past the 320 the route-module
+ * test allows, and this is the seam it asked for — the same reasoning that moved
+ * /my-posts out when share-type badges pushed it over.
+ *
+ * The *reading* side, which renders for anonymous viewers too, is in
+ * post-detail.ts; the author's own listing is in my-posts.ts.
+ *
+ * All three handlers here are "session → parse id → fetch post → compare
+ * user_id", which used to be written out by hand. `requireOwnedPost()` is that
+ * sequence; its 302 / 404 / 403 responses are the ones these handlers returned
+ * themselves, and it catches its own D1 errors, so none of them needs a `try`
+ * around the lookup.
  */
-
-export async function handleCreatePost(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-): Promise<Response> {
-  if (request.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
-  }
-
-  const guard = await requireUser(request, env, "api");
-  if (!guard.ok) return guard.response;
-  const user = guard.value;
-
-  try {
-    const formData = await request.formData();
-    let conferenceId = formData.get("conference_id") as string;
-    const title = formData.get("title") as string;
-    const description = formData.get("description") as string;
-
-    if (!title || !description || !conferenceId) {
-      return new Response("Missing required fields", { status: 400 });
-    }
-
-    const turnstileOk = await verifyTurnstile(
-      formData.get("cf-turnstile-response") as string | null,
-      request,
-      env,
-    );
-    if (!turnstileOk) {
-      return new Response(
-        "Could not verify that you are human. Please reload the page and try again.",
-        { status: 400 },
-      );
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const userId = sessionUserId(user);
-
-    // KNOWN LIMIT: creating a post against a new conference is three separate
-    // writes (conference insert, tag batch, post insert) with no transaction
-    // around them. If the post insert fails, the conference survives as an
-    // orphan and keeps its slug, so the user's retry gets "-2" appended.
-    // The reason D1 cannot fix this is recorded on src/db/conferences.ts.
-    if (conferenceId === "new") {
-      const newConfName = formData.get("new_conf_name") as string;
-      const newConfStartStr = formData.get("new_conf_start") as string;
-      const newConfEndStr = formData.get("new_conf_end") as string;
-      const newConfCity = formData.get("new_conf_city") as string;
-      const newConfState = formData.get("new_conf_state") as string;
-      const newConfLocation = [newConfCity, newConfState]
-        .filter(Boolean)
-        .join(", ");
-
-      if (!newConfName || !newConfStartStr || !newConfEndStr) {
-        return new Response("Missing required fields for new conference", {
-          status: 400,
-        });
-      }
-
-      const slug = await reserveSlug(env, newConfName);
-      const startTime = Math.floor(new Date(newConfStartStr).getTime() / 1000);
-      const stopTime = Math.floor(new Date(newConfEndStr).getTime() / 1000);
-
-      if (!Number.isFinite(startTime) || !Number.isFinite(stopTime)) {
-        return new Response("Invalid conference dates", { status: 400 });
-      }
-
-      const newConferenceId = await createConference(env, {
-        userId,
-        name: newConfName,
-        slug,
-        locationAddress: newConfLocation || null,
-        startTime,
-        stopTime,
-        createdAt: now,
-      });
-      conferenceId = newConferenceId.toString();
-
-      // Subjects are conference-level. tagConference() drops any slug that is
-      // not already in `tags`, which is what keeps the curated list curated.
-      const submittedTags = formData
-        .getAll("conf_tags")
-        .map((value) => String(value).trim())
-        .filter(Boolean);
-
-      await tagConference(env, newConferenceId, submittedTags);
-    }
-
-    const parsedConferenceId = parseRouteId(conferenceId);
-    if (parsedConferenceId === null) {
-      return new Response("Invalid conference", { status: 400 });
-    }
-
-    const postId = await createPost(env, {
-      userId,
-      conferenceId: parsedConferenceId,
-      title,
-      description,
-      createdAt: now,
-    });
-
-    // Share types are post-level and optional. setShareTypesForPost() drops any
-    // slug outside the curated list, and writes nothing when none were checked.
-    await setShareTypesForPost(env, postId, submittedShareTypes(formData));
-
-    return Response.redirect(`${new URL(request.url).origin}/my-posts`, 303);
-  } catch (err) {
-    console.error("Error creating post:", err);
-    return new Response("Internal Server Error", { status: 500 });
-  }
-}
 
 export async function handleEditPostForm(
   request: Request,
@@ -154,6 +45,13 @@ export async function handleEditPostForm(
   // failure, and must not degrade into a form whose save would clear the post.
   const pickerHtml = await renderShareTypePicker(env, post.id);
   if (pickerHtml === null) return errorPage();
+
+  // Fatal for the same reason on both forms: these fields are required, so a
+  // form missing them is one whose save can only 400. Pre-filled from the post,
+  // which is how a post written before the fields existed gets completed — the
+  // dead-population problem subject tags still have.
+  const authorHtml = await renderAuthorFields(env, post);
+  if (authorHtml === null) return errorPage();
 
   const content = `
     <div class="form-page">
@@ -178,6 +76,8 @@ export async function handleEditPostForm(
           <label for="edit-description">Description</label>
           <textarea class="input" id="edit-description" name="description" rows="6" required>${escapeHtml(post.description)}</textarea>
         </div>
+
+        ${authorHtml}
 
         ${pickerHtml}
 
@@ -216,9 +116,17 @@ export async function handleEditPostSubmit(
       return new Response("Missing required fields", { status: 400 });
     }
 
+    const author = await readAuthorFields(env, formData);
+    if (!author.ok) return author.response;
+
     // updatePost() keeps the user_id in its WHERE as defence in depth on top of
     // requireOwnedPost() — an id can never be trusted from the form body.
-    await updatePost(env, post.id, sessionUserId(user), { title, description });
+    await updatePost(env, post.id, sessionUserId(user), {
+      title,
+      description,
+      position: author.position,
+      institution: author.institution,
+    });
 
     // Replace, not add: unchecked boxes submit nothing, so an add-only write
     // would make removing a share type impossible. Ownership is already settled

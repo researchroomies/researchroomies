@@ -9,6 +9,7 @@ import {
 	handleComponentNavSubjects,
 	handleComponentTagOptions,
 	handleComponentShareTypeOptions,
+	handleComponentPositionFields,
 	handleComponentRecentPosts,
 	handleComponentNavUser,
 } from './routes/components';
@@ -16,8 +17,8 @@ import { handlePostPage, handleComponentPost } from './routes/post-detail';
 import { handleMessageSend } from './routes/messages';
 import { handleAuthStart, handleAuthCallback, handleAuthLogout, handleAuthMe } from './routes/auth';
 import { handleMyPosts } from './routes/my-posts';
+import { handleCreatePost } from './routes/create-post';
 import {
-	handleCreatePost,
 	handleEditPostForm,
 	handleEditPostSubmit,
 	handleDeletePostConfirm,
@@ -54,6 +55,7 @@ export const ROUTES: RouteDefinition[] = [
 	{ method: 'GET', path: '/api/components/nav-subjects', handler: handleComponentNavSubjects },
 	{ method: 'GET', path: '/api/components/tag-options', handler: handleComponentTagOptions },
 	{ method: 'GET', path: '/api/components/share-type-options', handler: handleComponentShareTypeOptions },
+	{ method: 'GET', path: '/api/components/position-fields', handler: handleComponentPositionFields },
 	{ method: 'GET', path: '/api/components/recent-posts', handler: handleComponentRecentPosts },
 	{ method: 'GET', path: '/api/components/post/:id', handler: handleComponentPost },
 	{ method: 'POST', path: '/api/post', handler: handleCreatePost },

@@ -946,6 +946,44 @@ footer {
     white-space: nowrap;
 }
 
+/* — who is posting: the create/edit fieldset, and the byline on every listing — */
+
+/* Shares .share-types' shape rather than restating it: both are a fieldset with
+   a heading-weight legend sitting inside a .form-stack, and they appear one
+   above the other on the same two forms. Divergence there would read as a
+   mistake, not as a distinction. */
+.author-fields {
+    border: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.author-fields legend {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 15px;
+    padding: 0;
+    margin-bottom: 2px;
+}
+
+.author-fields > .field-hint {
+    margin: 0 0 var(--space-3);
+}
+
+.author-fields .field + .field {
+    margin-top: var(--space-3);
+}
+
+/* The byline: quieter than the title it sits under, at .listing-meta's weight,
+   because it is a credential a reader checks rather than the thing that makes
+   them click. It renders on a post that states either half, and not at all on
+   one that states neither. */
+.post-author {
+    margin: 2px 0 var(--space-2);
+    font-size: 13px;
+    color: var(--color-neutral-700);
+}
+
 /* — post detail — */
 
 .post-title {

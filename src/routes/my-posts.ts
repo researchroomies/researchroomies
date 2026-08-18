@@ -5,14 +5,16 @@ import { requireUser } from "../lib/guards";
 import { listPostsForUser } from "../db/posts";
 import { listShareTypesForPosts } from "../db/share-types";
 import { shareTypeBadges } from "../lib/share-types";
+import { authorLine } from "../lib/positions";
 
 /**
  * `GET /my-posts` — the author's own listing.
  *
  * Split out of posts.ts when share-type badges pushed that file over the
- * route-module size bound. The seam is the one the bound's own message asks for:
- * everything left in posts.ts *mutates* a post and reaches `requireOwnedPost()`
- * or `createPost()`, while this renders a list and reaches `listPostsForUser()`.
+ * route-module size bound — the first of two splits that bound has forced, the
+ * second being create-post.ts. The seam is the one the bound's own message asks
+ * for: the authoring modules *mutate* a post and reach `requireOwnedPost()` or
+ * `createPost()`, while this renders a list and reaches `listPostsForUser()`.
  * It is the same shape of page as `/search`, differing only in that its filter
  * is the session rather than a query string — which is why it takes the whole
  * `PostWithConference` row from the same listing query.
@@ -45,6 +47,7 @@ export async function handleMyPosts(
           <li class="my-post-item">
             <div>
               <h3><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+              ${authorLine(post)}
               ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
               <p class="conference-info">
                 <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a>

@@ -83,6 +83,7 @@ describe('A. SQL is reached only through src/db/', () => {
 		expect(sql.sort()).toEqual([
 			'src/db/conferences.ts',
 			'src/db/moderation.ts',
+			'src/db/positions.ts',
 			'src/db/posts.ts',
 			'src/db/share-types.ts',
 			'src/db/tags.ts',

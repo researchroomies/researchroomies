@@ -49,12 +49,28 @@ export interface ConferenceWithPostCount extends ConferenceListing {
 	post_count: number;
 }
 
-/** A post on its own, as the conference page lists it. */
+/**
+ * A post on its own, as the conference page lists it.
+ *
+ * The three authorship fields are nullable and every renderer must treat them
+ * that way. They are required on both the create and the edit form, but the
+ * posts that predate them cannot be backfilled — nobody can say what their
+ * author's position was — so "not stated" is a real, permanent state rather
+ * than a migration gap, exactly as it is for share types.
+ *
+ * `position_name` is the curated display name, resolved by a LEFT JOIN in the
+ * query rather than by a second lookup per row. `position_other` carries the
+ * free text that only `position_slug = 'other'` has; `positionLabel()` in
+ * src/lib/positions.ts is the one place that decides which of the two to show.
+ */
 export interface Post {
 	id: number;
 	title: string;
 	description: string;
 	created_at: number;
+	position_name: string | null;
+	position_other: string | null;
+	institution: string | null;
 }
 
 /**
@@ -93,6 +109,15 @@ export interface PostDetail {
 	location_address: string;
 	start_time: number;
 	stop_time: number;
+	/**
+	 * The raw slug, which only this shape carries. The listing types render the
+	 * name; the edit form additionally has to re-select the right `<option>`,
+	 * and a display name cannot do that.
+	 */
+	position_slug: string | null;
+	position_name: string | null;
+	position_other: string | null;
+	institution: string | null;
 }
 
 /** Where an inquiry about a post gets delivered. */
@@ -145,6 +170,18 @@ export interface PostShareType extends ShareType {
 	post_id: number;
 }
 
+/**
+ * One of the curated academic positions a post's author can state.
+ *
+ * Single-valued, unlike `ShareType`: a post has one author with one position,
+ * which is why it is a column on `posts` and not a join table. `other` is the
+ * escape hatch, and the only slug whose free-text companion is required.
+ */
+export interface Position {
+	slug: string;
+	name: string;
+}
+
 /** A user row, as login reads it back. */
 export interface User {
 	id: number;
@@ -165,18 +202,46 @@ export interface NewConference {
 	createdAt: number;
 }
 
+/**
+ * A validated position, as `resolvePosition()` hands it to a write.
+ *
+ * `other` is non-null only when `slug` is `'other'`; the resolver clears it
+ * otherwise, so the pair can never claim to be a Professor with a free-text
+ * label attached.
+ */
+export interface PositionInput {
+	slug: string;
+	other: string | null;
+}
+
 export interface NewPost {
 	userId: number;
 	conferenceId: number;
 	title: string;
 	description: string;
 	createdAt: number;
+	/**
+	 * Null only for the seeds and fixtures that stand in for posts written
+	 * before the field existed. Both handlers reject a post without one.
+	 */
+	position: PositionInput | null;
+	institution: string | null;
 }
 
-/** The columns `updatePost` is allowed to change. */
+/**
+ * The columns `updatePost` is allowed to change.
+ *
+ * Position and institution are here, not on `NewPost` alone, and that is the
+ * point: subjects can only be set while creating a conference, which is why
+ * production has conferences that can never be tagged. Making these editable
+ * from the start means a post that predates them is one save away from being
+ * complete, and a typo'd institution is fixable.
+ */
 export interface PostFields {
 	title: string;
 	description: string;
+	position: PositionInput | null;
+	institution: string | null;
 }
 
 export interface NewFlag {

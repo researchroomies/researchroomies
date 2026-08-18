@@ -16,13 +16,14 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
   - `search.ts` – `/search`
   - `components.ts` – the `/api/components/*` HTMX fragments
   - `post-detail.ts` – reading a post: `/post/:id` and its fragment twin
-  - `posts.ts` – authoring a post: create, edit, delete
+  - `create-post.ts` – writing a post: `POST /api/post`
+  - `posts.ts` – changing your own post: edit, delete
   - `my-posts.ts` – `/my-posts`, the author's own listing
   - `messages.ts` – inquiry send
   - `auth.ts` – magic link login/logout/session
   - `flags.ts` – post reporting
-- `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `share-types`, `users`, `moderation`
-- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`, `share-types` (the picker/badge/option markup)
+- `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `share-types`, `positions`, `users`, `moderation`
+- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`, `share-types` (the picker/badge/option markup), `positions` (the author fields, their validation and the byline)
 - `templates/style/style.css` – the only stylesheet: Classical tokens, then the
   system's component classes, then the application layer. No framework, no build
   step. See the styling section of AGENTS.md before touching it.
@@ -341,13 +342,142 @@ asset router.
 
 ---
 
-## Current State — updated 2026-08-17
+## Position and institution on a post, 2026-08-18
+
+A post now says **who wrote it**: a required position from a curated list of six
+(`undergraduate`, `graduate`, `postdoc`, `lecturer`, `professor`, `other`) and a
+required free-text institution. `other` opens a free-text box of its own. Both
+appear on the create form, on the edit form, and on every surface that shows a
+post. This was feedback: readers were being asked to arrange a shared hotel room
+with someone whose only stated identity was an email address.
+
+- **Post-level, not user-level.** `users` holds an email and nothing else, its
+  only writer is the login upsert, and the site has no profile page — a column
+  there would have no UI and no way to be corrected. The post is also the honest
+  scope: a position is true as of the trip being arranged, and the author who was
+  a graduate student for the 2026 conference is a postdoc for the 2027 one.
+- **`positions` is a curated table; `posts.position_slug` is a column.** The
+  table is the direct sibling of `share_types`, down to `sort_order` — the list
+  runs earliest career stage to latest and ends at 'Other Position', which
+  alphabetical would bury in the middle. The *column* is the deliberate contrast
+  with `post_share_types`: that is a join table because one post really can offer
+  a room and a car seat, whereas one post has exactly one author with one
+  position.
+- **`position_other` is a second column, not free text in `position_slug`.**
+  Putting the typed answer in the slug would break the foreign key, make the
+  curated list unbounded, and turn "how many posts come from someone outside
+  these five" into a question nothing can answer. `resolvePosition()` clears the
+  free text whenever the slug is not `other`, because the hidden box keeps its
+  value in the DOM — a user who types "Staff scientist", reconsiders and picks
+  Professor submits both, and storing the leftover would produce a row claiming
+  to be a Professor with an 'other' label attached.
+- **The columns are nullable although the fields are required, and this is the
+  central decision.** SQLite cannot add a NOT NULL column without a default, and
+  there is no honest default: nobody can say what the author of an existing post
+  was, and `'other'` / `'Unknown'` would be indistinguishable from an answer
+  somebody actually gave. So the schema says "not stated", the forms require an
+  answer, and every renderer treats absence as normal — exactly as it already
+  does for share types. The consequence to keep in mind is the join:
+  `LEFT JOIN positions`, never `JOIN`, or every post written before this feature
+  disappears from every listing while the happy-path tests still pass.
+- **Required means rejected, not dropped.** This is the first field on the site
+  whose bad input is a 400. `setShareTypesForPost()` silently discards a slug
+  outside its list because share types are optional — discarding one leaves a
+  post the author could have written. Discarding a position would write a post
+  with no position through a form that says the field is mandatory, so
+  `resolvePosition()` returns null and `readAuthorFields()` turns that into the
+  400.
+- **The check runs after Turnstile and before the conference branch.** After,
+  because it reads the database and an unverified request should not get that
+  far. Before, because creating a post against a *new* conference is three
+  unprotected writes — rejecting afterwards leaves an orphan conference that has
+  already taken its slug, so the author's corrected retry comes back as `…-2`.
+  `test/positions.test.ts` pins both ends of that window.
+- **The picker is on the edit form, which is what keeps the population alive.**
+  Same lesson as share types, restated because it is the one that actually bit:
+  subjects can only be set while creating a conference, so everything older is
+  permanently untaggable and `/search?tag=` finds nothing on production. Here a
+  post that predates the fields is one save away from being complete.
+- **The reveal is an inline `onchange`, and there is still no new JavaScript.**
+  The create page already toggles its new-conference block exactly that way. The
+  handler also sets `required` on the free-text box rather than the markup doing
+  it: a `required` field that is `hidden` blocks submission with a browser
+  message pointing at a control nobody can see. The server enforces the same rule
+  regardless, so the attribute is a courtesy, not the check.
+- **`renderAuthorFields()` returns `string | null` and *both* callers treat null
+  as fatal** — unlike `renderShareTypePicker()`, whose create-form caller
+  degrades to no picker. A form rendered without a required field is one whose
+  save can only 400, which would cost the author everything else they had typed.
+
+### What moved
+
+- **`handleCreatePost` split into `src/routes/create-post.ts`.** Adding the
+  fields took `posts.ts` to 360 lines against `test/route-modules.test.ts`'s 320
+  bound, and the bound's own message says to split rather than raise the number.
+  The seam is `requireOwnedPost()`: everything left in `posts.ts` starts from a
+  post that exists and belongs to the caller and touches nothing else, while
+  creating one starts from a session and may write a conference, its subjects,
+  the post and its share types before it returns. `posts.ts` is 194 after the
+  split and `create-post.ts` 146.
+- **`readAuthorFields()` lives in `src/lib/positions.ts`, not in a route
+  module,** so create and edit cannot disagree about what is required — the same
+  file that puts that knowledge into the markup. It returns
+  `{ ok, value | response }` following `lib/guards.ts` rather than throwing.
+- **Every post read gained the authorship columns.** `Post`, `PostWithConference`
+  and `PostDetail` all carry `position_name` / `position_other` / `institution`;
+  `PostDetail` additionally carries `position_slug`, because only the edit form
+  needs to re-select an `<option>` and a display name cannot do that. The name is
+  resolved by a join in the query rather than a lookup per row — the same rule
+  `listShareTypesForPosts()` follows. It cannot fan the rows out the way
+  `conference_tags` would: `position_slug` is a single value against a primary
+  key.
+- **`test/helpers/seed.ts` now tracks migrations** in a `d1_migrations` table
+  instead of concatenating every file and re-running the lot on each reset.
+  Everything up to `0003` was idempotent by construction, so the blob happened to
+  work; `ALTER TABLE … ADD COLUMN` has no `IF NOT EXISTS` form and fails outright
+  the second time. `seedPost()` leaves the new fields null by default — a post
+  written before the feature — so a renderer that cannot survive a null cannot
+  pass the suite.
+
+**Cover is `test/positions.test.ts` (28 tests); the suite is 495 across 16
+files.** Checked against mutation: turning the LEFT JOIN into an inner one fails
+five tests (every "post that predates the fields" case), making
+`resolvePosition()` fall back to a default instead of rejecting fails three, and
+moving the author check after the conference branch fails exactly the orphan
+test. Two existing guard tests moved with the code rather than being weakened —
+`db-access.test.ts` gained `src/db/positions.ts` in its list of SQL-holding
+modules, and `session-access.test.ts`'s `UPDATE posts SET … WHERE id = ? AND
+user_id = ?` regex became `[\s\S]*?` because that statement wrapped onto several
+lines when it gained columns.
+
+**Verified end to end against `wrangler dev`** on a local D1 carrying the earlier
+migrations: `0004` applied to the existing database and re-applying reports "No
+migrations to apply"; the fragment, both creates (curated slug and Other +free
+text), all four rejections at 400 with nothing written, the post page's two fact
+rows, the free text shown in place of the words "Other Position", a legacy post
+still rendering at 200 with the rows omitted and no byline in any listing, the
+byline on `/search`, `/my-posts`, `/conference/:slug` and the home feed, the edit
+form pre-selecting each of the three states, a legacy post completed through it,
+and an edit that drops the institution refused at 400 with the row unchanged.
+
+**To deploy:** `npx wrangler d1 migrations apply research-roomies --remote`, then
+`npm run deploy`. Migrations first, as always — `0004` adds the columns the new
+queries select, and the deployed Worker would 500 on every listing without them.
+
+**Deliberately not built:** a `/search?position=` filter. The data now supports
+it and the clause would be one line, but nobody asked to search by career stage,
+and every filter added to that page is another chip, another parameter and
+another combination for `test/search.test.ts` to cover.
+
+---
+
+## Current State — updated 2026-08-18
 
 Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **All six refactor tasks have landed** (see `docs/refactor/`, now closed).
 
-Suite is **447 tests across 15 files** (373 across 12 at the close of the
-refactor; share types, the all-conferences index and the redesign added the
-rest), up from 21 across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Suite is **495 tests across 16 files** (373 across 12 at the close of the
+refactor; share types, the all-conferences index, the redesign and the author
+fields added the rest), up from 21 across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Trailing-slash 404 on every Worker route — fixed 2026-08-10
 

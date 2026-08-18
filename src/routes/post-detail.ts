@@ -17,6 +17,7 @@ import { parseRouteId } from "../lib/params";
 import { getPostWithConference } from "../db/posts";
 import { listShareTypesForPost } from "../db/share-types";
 import { shareTypeBadges } from "../lib/share-types";
+import { positionLabel } from "../lib/positions";
 import type { PostDetail, ShareType } from "../db/types";
 
 /**
@@ -25,20 +26,34 @@ import type { PostDetail, ShareType } from "../db/types";
  * These two live together because they are one rendering with two envelopes —
  * `renderPostDetail()` is the shared body, and keeping it private to this file
  * is what lets the split hold its rule that no route module imports another.
- * The authoring side of a post (create, edit, delete, my-posts) is in posts.ts;
- * everything here renders for anonymous viewers too.
+ * The authoring side of a post is elsewhere — create-post.ts writes one,
+ * posts.ts edits and deletes one, my-posts.ts lists your own; everything here
+ * renders for anonymous viewers too.
  */
 
-/** The conference link, dates, location and posting date, as stated facts. */
+/** The conference link, the author, the dates and the posting date, as stated facts. */
 function renderFacts(post: PostDetail): string {
   const location = post.location_address
     ? `<dt>Location</dt><dd>${escapeHtml(post.location_address)}</dd>`
     : "";
 
+  // Two rows rather than one byline, because this list is where a reader checks
+  // a claim rather than skims it, and because either half can be absent: the
+  // columns are nullable and the posts written before the fields existed have
+  // neither. Omitted entirely rather than rendered as "—" — a row promising a
+  // fact the post does not carry is worse than no row.
+  const position = positionLabel(post);
+  const author =
+    (position ? `<dt>Position</dt><dd>${escapeHtml(position)}</dd>` : "") +
+    (post.institution
+      ? `<dt>Institution</dt><dd>${escapeHtml(post.institution)}</dd>`
+      : "");
+
   return `
         <dl class="post-facts">
           <dt>Conference</dt>
           <dd><a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a></dd>
+          ${author}
           <dt>Dates</dt><dd class="tnum">${formatDateRange(post.start_time, post.stop_time)}</dd>
           ${location}
           <dt>Posted</dt><dd class="tnum">${formatDate(post.created_at)}</dd>

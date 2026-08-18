@@ -4,6 +4,7 @@ import { searchPosts, SEARCH_LIMIT } from "../db/posts";
 import { listShareTypes, listShareTypesForPosts } from "../db/share-types";
 import { listTags } from "../db/tags";
 import { shareTypeBadges, shareTypeOptions } from "../lib/share-types";
+import { authorLine } from "../lib/positions";
 import type { ShareType, Tag } from "../db/types";
 
 /**
@@ -201,6 +202,7 @@ export async function handleSearch(
             (post) => `
           <article class="listing-item">
             <h3 class="listing-title"><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+            ${authorLine(post)}
             ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
             <p class="listing-excerpt">${escapeHtml(summarize(post.description, 180))}</p>
             <div class="listing-meta">

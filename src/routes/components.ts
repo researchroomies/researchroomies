@@ -6,6 +6,7 @@ import { listTags } from "../db/tags";
 import { listRecentPosts } from "../db/posts";
 import { listShareTypesForPosts } from "../db/share-types";
 import { renderShareTypePicker, shareTypeBadges } from "../lib/share-types";
+import { authorLine, renderAuthorFields } from "../lib/positions";
 
 /**
  * `/api/components/*` — HTMX fragments: raw HTML, never JSON, never a full page.
@@ -142,6 +143,38 @@ export async function handleComponentShareTypeOptions(
   return fragmentResponse(html, { cache: "public-long" });
 }
 
+/**
+ * The position dropdown and institution box for the create-post form.
+ *
+ * Here for the same reason as the share-type picker: the create page is a
+ * static Eleventy asset and cannot read the curated list itself, while the edit
+ * form is Worker-rendered and calls `renderAuthorFields()` directly. One helper,
+ * so the two forms cannot drift on a field that is mandatory in both.
+ *
+ * The failure path is the opposite of `handleComponentShareTypeOptions()`, and
+ * deliberately so. That one degrades to an empty picker because share types are
+ * optional. These fields are required, so a form without them cannot be
+ * submitted at all — better to say so where the fields belong than to let
+ * someone write a post and lose it to a 400.
+ */
+export async function handleComponentPositionFields(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const html = await renderAuthorFields(env, null);
+
+  if (html === null) {
+    return fragmentResponse(
+      `<p class="form-notice">Could not load the position list. Reload the page before posting — a post needs your position and institution.</p>`,
+      { status: 500, cache: "none" },
+    );
+  }
+
+  // The same curated list for everyone; nothing here varies by session.
+  return fragmentResponse(html, { cache: "public-long" });
+}
+
 /** How many posts the homepage feed shows before deferring to `/search`. */
 const FEED_LIMIT = 6;
 
@@ -187,6 +220,7 @@ export async function handleComponentRecentPosts(
           <div>
             <div class="card-kicker">${escapeHtml(post.conference_name)}${post.location_address ? ` · ${escapeHtml(post.location_address)}` : ""}</div>
             <h3 class="listing-title"><a href="/post/${post.id}">${escapeHtml(post.title)}</a></h3>
+            ${authorLine(post)}
             <p class="listing-excerpt">${escapeHtml(summarize(post.description, 180))}</p>
             ${shareTypeBadges(shareTypes.get(post.id) ?? [])}
             <div class="listing-meta">

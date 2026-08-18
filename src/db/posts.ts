@@ -26,12 +26,29 @@ import type {
  */
 export const SEARCH_LIMIT = 50;
 
-/** The columns behind `PostWithConference`, shared by the two listing queries. */
+/**
+ * The columns behind `PostWithConference`, shared by the listing queries.
+ *
+ * `positions` is joined for one column: the display name behind the post's
+ * slug. It is a LEFT join because the column is nullable — a post written before
+ * the field existed has no position and must still appear in every listing —
+ * and it is a join rather than a second lookup because otherwise every listing
+ * page would cost a query per row. It cannot fan the rows out the way
+ * `conference_tags` would: `position_slug` is a single value against a primary
+ * key, so it matches at most one row.
+ */
+const POST_AUTHORSHIP_COLUMNS = `
+	positions.name AS position_name,
+	posts.position_other,
+	posts.institution
+`;
+
 const POST_WITH_CONFERENCE_COLUMNS = `
 	posts.id,
 	posts.title,
 	posts.description,
 	posts.created_at,
+	${POST_AUTHORSHIP_COLUMNS},
 	conferences.name AS conference_name,
 	conferences.slug AS conference_slug,
 	conferences.location_address,
@@ -39,9 +56,24 @@ const POST_WITH_CONFERENCE_COLUMNS = `
 	conferences.stop_time
 `;
 
+/** Every listing query joins the same way; only its filters differ. */
+const POST_LISTING_FROM = `
+	FROM posts
+	JOIN conferences ON posts.conference_id = conferences.id
+	LEFT JOIN positions ON posts.position_slug = positions.slug
+`;
+
 /** A single post by id, without its conference. */
 export async function getPost(env: Env, id: number): Promise<Post | null> {
-	return await env.DB.prepare(`SELECT id, title, description, created_at FROM posts WHERE id = ?`)
+	return await env.DB.prepare(
+		`
+		SELECT posts.id, posts.title, posts.description, posts.created_at,
+		       ${POST_AUTHORSHIP_COLUMNS}
+		FROM posts
+		LEFT JOIN positions ON posts.position_slug = positions.slug
+		WHERE posts.id = ?
+	`,
+	)
 		.bind(id)
 		.first<Post>();
 }
@@ -63,9 +95,11 @@ export async function getPostWithConference(env: Env, id: number): Promise<PostD
 		`
 		SELECT p.id, p.title, p.description, p.created_at, p.user_id, p.conference_id,
 		       c.name AS conference_name, c.slug AS conference_slug,
-		       c.location_address, c.start_time, c.stop_time
+		       c.location_address, c.start_time, c.stop_time,
+		       p.position_slug, positions.name AS position_name, p.position_other, p.institution
 		FROM posts p
 		JOIN conferences c ON p.conference_id = c.id
+		LEFT JOIN positions ON p.position_slug = positions.slug
 		WHERE p.id = ?
 	`,
 	)
@@ -77,10 +111,12 @@ export async function getPostWithConference(env: Env, id: number): Promise<PostD
 export async function listPostsForConference(env: Env, conferenceId: number): Promise<Post[]> {
 	const { results } = await env.DB.prepare(
 		`
-		SELECT id, title, description, created_at
+		SELECT posts.id, posts.title, posts.description, posts.created_at,
+		       ${POST_AUTHORSHIP_COLUMNS}
 		FROM posts
-		WHERE conference_id = ?
-		ORDER BY created_at DESC
+		LEFT JOIN positions ON posts.position_slug = positions.slug
+		WHERE posts.conference_id = ?
+		ORDER BY posts.created_at DESC
 	`,
 	)
 		.bind(conferenceId)
@@ -103,8 +139,7 @@ export async function listRecentPosts(env: Env, limit: number): Promise<PostWith
 	const { results } = await env.DB.prepare(
 		`
 		SELECT ${POST_WITH_CONFERENCE_COLUMNS}
-		FROM posts
-		JOIN conferences ON posts.conference_id = conferences.id
+		${POST_LISTING_FROM}
 		ORDER BY posts.created_at DESC
 		LIMIT ${capped}
 	`,
@@ -117,8 +152,7 @@ export async function listPostsForUser(env: Env, userId: number): Promise<PostWi
 	const { results } = await env.DB.prepare(
 		`
 		SELECT ${POST_WITH_CONFERENCE_COLUMNS}
-		FROM posts
-		JOIN conferences ON posts.conference_id = conferences.id
+		${POST_LISTING_FROM}
 		WHERE posts.user_id = ?
 		ORDER BY posts.created_at DESC
 	`,
@@ -208,8 +242,7 @@ export async function searchPosts(env: Env, filters: SearchFilters): Promise<Pos
 
 	const stmt = env.DB.prepare(`
 		SELECT ${POST_WITH_CONFERENCE_COLUMNS}
-		FROM posts
-		JOIN conferences ON posts.conference_id = conferences.id
+		${POST_LISTING_FROM}
 		${where}
 		ORDER BY conferences.start_time ASC, posts.created_at DESC
 		LIMIT ${SEARCH_LIMIT}
@@ -237,12 +270,22 @@ export async function getPostAuthorContact(env: Env, postId: number): Promise<Po
 export async function createPost(env: Env, input: NewPost): Promise<number> {
 	const result = await env.DB.prepare(
 		`
-		INSERT INTO posts (user_id, conference_id, title, description, created_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO posts (user_id, conference_id, title, description, created_at,
+		                   position_slug, position_other, institution)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`,
 	)
-		.bind(input.userId, input.conferenceId, input.title, input.description, input.createdAt)
+		.bind(
+			input.userId,
+			input.conferenceId,
+			input.title,
+			input.description,
+			input.createdAt,
+			input.position?.slug ?? null,
+			input.position?.other ?? null,
+			input.institution,
+		)
 		.first<{ id: number }>();
 
 	if (!result) throw new Error('Failed to create post');
@@ -258,8 +301,22 @@ export async function createPost(env: Env, input: NewPost): Promise<number> {
  * to edit someone else's post.
  */
 export async function updatePost(env: Env, id: number, userId: number, fields: PostFields): Promise<void> {
-	await env.DB.prepare(`UPDATE posts SET title = ?, description = ? WHERE id = ? AND user_id = ?`)
-		.bind(fields.title, fields.description, id, userId)
+	await env.DB.prepare(
+		`
+		UPDATE posts
+		SET title = ?, description = ?, position_slug = ?, position_other = ?, institution = ?
+		WHERE id = ? AND user_id = ?
+	`,
+	)
+		.bind(
+			fields.title,
+			fields.description,
+			fields.position?.slug ?? null,
+			fields.position?.other ?? null,
+			fields.institution,
+			id,
+			userId,
+		)
 		.run();
 }
 
