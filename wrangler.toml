@@ -5,13 +5,13 @@ compatibility_date = "2025-08-26"
 account_id = "3cec30fdcb5e689c159089dc6772ae0b"
 
 [vars]
-# Optional institutional-email gate on login/signup. Off by default.
-# Set to "true" and redeploy to accept only addresses ending in .edu.
-# Read the tradeoff note in CLAUDE.md before enabling: a strict .edu suffix
-# also turns away international academics (.ac.uk, .edu.au, and universities
-# with no .edu domain at all), and it applies to EXISTING users too, so anyone
-# already registered with a non-.edu address loses the ability to log in.
-RESTRICT_EDU_EMAILS = "false"
+# Institutional-email gate on login/signup. ON since 2026-08-23.
+# Set to "false" and redeploy to accept any address again.
+# Live consequences of it being on: a strict .edu suffix turns away
+# international academics (.ac.uk, .edu.au, and universities with no .edu
+# domain at all), and it applies to EXISTING users too, so anyone already
+# registered with a non-.edu address can no longer log in.
+RESTRICT_EDU_EMAILS = "true"
 
 # public turnstile key
 TURNSTILE_SITE_KEY = "0x4AAAAAAByAHmDummOs9UGm"

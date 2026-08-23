@@ -485,6 +485,44 @@ a.tag-outline:hover {
     min-width: 560px;
 }
 
+/* — dialog — */
+
+/* Native <dialog>: the browser supplies the top layer, the focus trap and
+   Esc-to-close, so nothing here re-implements any of that. Only the skin is
+   ours — a bordered card on the page ground, in keeping with stroke-not-fill. */
+.dialog {
+    width: min(30rem, calc(100vw - var(--space-8)));
+    padding: var(--space-6);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    color: var(--color-text);
+    box-shadow: var(--shadow-lg);
+}
+
+.dialog::backdrop {
+    background: color-mix(in srgb, #201f1d 42%, transparent);
+}
+
+.dialog-title {
+    margin: 0 0 var(--space-3);
+    font-size: 21px;
+    font-weight: var(--font-heading-weight);
+}
+
+.dialog-body {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--color-neutral-800);
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-6);
+}
+
 /* ────────────────────────────────────────────────────── 3. APPLICATION ──── */
 
 /* — page chrome — */

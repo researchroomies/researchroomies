@@ -1,4 +1,4 @@
-import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isEmailAllowed } from '../lib/auth';
+import { generateMagicLinkToken, verifyMagicLinkToken, generateSessionToken, isEmailAllowed, EDU_RESTRICTION_MESSAGE } from '../lib/auth';
 import { upsertUserOnLogin } from '../db/users';
 import { sendMagicLink } from '../lib/mailgun';
 import { COOKIE_NAME, getSessionUser } from '../lib/session';
@@ -64,12 +64,13 @@ export async function handleAuthStart(request: Request, env: Env, ctx: Execution
             return new Response('Invalid email format', { status: 400 });
         }
 
-        // 3. Optional institutional-email gate (RESTRICT_EDU_EMAILS)
+        // 3. Optional institutional-email gate (RESTRICT_EDU_EMAILS).
+        // 403 is the login page's signal to raise the restriction dialog: it is
+        // the only 403 this handler can return, and it can only happen while the
+        // gate is on, so the dialog is scoped to the flag without the static page
+        // ever having to read it. The body is the message, verbatim.
         if (!isEmailAllowed(normalizedEmail, env)) {
-            return new Response(
-                `Accounts are currently limited to .edu email addresses. If you are an academic without one, email ${config.adminEmail} and we will get you set up.`,
-                { status: 403 }
-            );
+            return new Response(EDU_RESTRICTION_MESSAGE, { status: 403 });
         }
 
         // 4. Create magic-link token
@@ -132,7 +133,7 @@ export async function handleAuthCallback(request: Request, env: Env, ctx: Execut
         if (!isEmailAllowed(payload.email, env)) {
             return callbackErrorPage(
                 'Account Not Eligible',
-                `Accounts are currently limited to .edu email addresses. If you are an academic without one, email <a href="mailto:${config.adminEmail}">${config.adminEmail}</a> and we will get you set up.`,
+                EDU_RESTRICTION_MESSAGE,
                 403
             );
         }

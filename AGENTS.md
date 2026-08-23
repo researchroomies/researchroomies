@@ -1,6 +1,9 @@
 # AGENTS.md – ResearchRoomies
 
-Everything an AI agent needs to know before touching this codebase.
+Everything an AI agent needs to know before touching this codebase. This file
+is current-state reference only — no changelog. For the reasoning behind a
+decision (why a bug happened, what was tried and rejected, how a feature was
+verified), see [`docs/history.md`](docs/history.md) or `docs/refactor/`.
 
 ---
 
@@ -133,7 +136,7 @@ renderFullPage(title, content, options?: { description?, canonicalUrl? })
 
 When you add a new Worker-rendered page, return it through `pageResponse()` (`src/lib/response.ts`) and register it in `src/routes.ts`.
 
-**Do not build a static shell that fetches its own content.** `/post/:id` used to ship "Loading post details…" plus inline JS that re-parsed the id out of `window.location` to call `/api/components/post/:id` — three round trips, and crawlers and link unfurlers got no title or description for the site's primary entity. No page is on that pattern any more.
+**Do not build a static shell that fetches its own content** — a page with indexable content belongs in one of the three modes above, rendered up front. No page is on a client-side-fetch pattern.
 
 ### 3. HTMX component fragments
 
@@ -200,7 +203,7 @@ To add a new route: export a handler from the `src/routes/` module that owns tha
 
 **Pick the module by concern, and do not import across route modules.** If two of them need the same thing, it belongs in `src/lib/` or `src/db/` — not in a sibling, and not in a shared `render.ts`, which would just rebuild `api.ts` a piece at a time. This is why `/api/components/post/:id` sits in `post-detail.ts` with the page it mirrors rather than in `components.ts` with the other fragments: the two share `renderPostDetail()`, and keeping them together is what keeps that helper private. `test/route-modules.test.ts` enforces both the no-cross-import rule and a size bound, since `api.ts` reached 1,199 lines one handler at a time without anything failing.
 
-**Check for an asset collision first.** Static assets are served *before* the Worker runs, so a route at `/foo` is dead on arrival if `templates/pages/foo.njk` exists (it builds to `public/foo/index.html`). Either don't create the template, or add `/foo` to `run_worker_first` in `wrangler.toml`. This is exactly how `GET /search` was silently unreachable.
+**Check for an asset collision first.** Static assets are served *before* the Worker runs, so a route at `/foo` is dead on arrival if `templates/pages/foo.njk` exists (it builds to `public/foo/index.html`). Either don't create the template, or add `/foo` to `run_worker_first` in `wrangler.toml`.
 
 **Register routes without a trailing slash.** `Router.match()` anchors its pattern with `$`, so `/search` and `/search/` are different strings and only the first matches. `src/index.ts` handles the second form: when the router does not claim a path that ends in `/`, it retries the trimmed path, and if *that* is a registered route it issues a `308` redirect to it. The redirect is deliberately conditional — Eleventy pages genuinely are directory-style, so `/about/` must keep falling through to `env.ASSETS.fetch()` untouched. `308` rather than `301` so POST routes like `/post/:id/edit/` do not degrade into a GET. Covered by `test/routing.test.ts`.
 
@@ -266,11 +269,11 @@ This existed as three inline steps repeated in four handlers, and forgetting the
 1. `POST /api/auth/start` — verifies Turnstile, generates token, sends email via Mailgun
 2. `GET /api/auth/callback?token=X` — verifies token, upserts user in DB, sets `rr_session` cookie, redirects to `/`
 
-The callback is reached by clicking a link in an email, so every failure path renders a full page (via `callbackErrorPage()`) pointing back at `/login` rather than returning bare text. The whole body is wrapped in a try/catch: a throw here used to escape the handler and surface as the runtime's own bare 500 mid-login.
+The callback is reached by clicking a link in an email, so every failure path renders a full page (via `callbackErrorPage()`) pointing back at `/login` rather than returning bare text. The whole body is wrapped in a try/catch, so a D1 or crypto failure mid-login renders a page rather than the runtime's bare 500.
 
 ### Logout
 
-`POST /api/auth/logout` clears the cookie and returns `HX-Redirect: /`, so HTMX performs a full page navigation and the nav re-renders in the logged-out state. (It previously returned `{"ok":true}`, which HTMX rendered inline as raw JSON — fixed in `c532625`.)
+`POST /api/auth/logout` clears the cookie and returns `HX-Redirect: /`, so HTMX performs a full page navigation and the nav re-renders in the logged-out state.
 
 ---
 
@@ -306,7 +309,7 @@ export async function getPost(env: Env, id: number): Promise<Post | null> {
 Rules that hold inside `src/db/`:
 
 - **Always `.bind()`** — never string-interpolate a value into a query.
-- **Type reads with D1's generics** (`.first<T>()` / `.all<T>()`). Four `as unknown as` casts used to launder mismatched row types; `getAllConferences()` was typed `Promise<Conference[]>` over a `SELECT id, name` and nothing complained. `test/db-access.test.ts` bans the cast outright.
+- **Type reads with D1's generics** (`.first<T>()` / `.all<T>()`) — `test/db-access.test.ts` bans `as unknown as` anywhere in `src/`.
 - **A type describes exactly the columns its query selects.** That is why `ConferenceSummary` (`id, name`) is separate from `Conference` — having the narrow type is what makes the wide lie unwritable.
 - **Reads return `[]` / `null`, not `undefined`**, so handlers need no defensive checks.
 - Writes take an input object (`NewPost`, `NewFlag`, …) rather than positional arguments, so a column added to an INSERT cannot silently shift the bindings.
@@ -409,7 +412,7 @@ npm run build
 
 Must be run after any template change before previewing with `wrangler dev`, which serves the pre-built `public/` and does not compile templates at runtime. `npm run deploy` runs the build itself (`npm run build && wrangler deploy`), so a deploy cannot ship stale HTML.
 
-**Adding a page here can break a Worker route.** Cloudflare serves a matching static asset before invoking the Worker, so `templates/pages/foo.njk` (which builds to `public/foo/index.html`) will shadow a registered `GET /foo` handler. Either don't create the template, or add the path to `run_worker_first` in `wrangler.toml`.
+**Adding a page here can break a Worker route** — see "Check for an asset collision first" under Route registration; the fix is the same, either don't create the template or add the path to `run_worker_first` in `wrangler.toml`.
 
 ### Base layout (`templates/layouts/base.njk`) — GENERATED, do not edit
 
@@ -434,7 +437,7 @@ description: One sentence, ≤160 characters, used for <meta name="description">
 
 `title` is **bare** — the shell appends ` – ResearchRoomies` (en dash) exactly as it does for `renderFullPage()`. Do not write the site name into a page title.
 
-Global data lives in `eleventy.config.js`: `year` (footer copyright) and `siteOrigin` (joined with `page.url` for `<link rel="canonical">` and `og:url`). `year` used to be referenced by the layout with nothing defining it, so every built page shipped a blank year.
+Global data lives in `eleventy.config.js`: `year` (footer copyright) and `siteOrigin` (joined with `page.url` for `<link rel="canonical">` and `og:url`).
 
 Subject tags are NOT Eleventy data — they live in D1 and are fetched at request time through the `/api/components/nav-subjects` and `/api/components/tag-options` HTMX fragments, so static and Worker-rendered pages show the same list without a rebuild.
 
@@ -499,7 +502,7 @@ having a system is that the next page does not have to re-decide.
 
 ## Cloudflare Turnstile (CAPTCHA)
 
-Site key: `TURNSTILE_SITE_KEY` in `[vars]` in `wrangler.toml` — **the single definition**. It used to be a literal repeated at four sites across two languages, so rotating the widget took four edits.  
+Site key: `TURNSTILE_SITE_KEY` in `[vars]` in `wrangler.toml` — **the single definition**.  
 Secret key: `env.TURNSTILE_SECRET_KEY` (a secret; never move it into `[vars]`)  
 Verification endpoint: `https://challenges.cloudflare.com/turnstile/v0/siteverify`
 
@@ -510,7 +513,7 @@ Two consumers read that one var:
 
 The client script is loaded once, by `renderShell()` in `src/lib/shell.mjs`, which is where both the generated `base.njk` and `renderFullPage()` get it — so any page gets a working widget just by emitting the div.
 
-Always verify with `verifyTurnstile(token, request, env)` from `src/lib/turnstile.ts`. **A missing token is a failure, not a skip.** Handlers used to guard with `if (token) { verify }`, which meant anything omitting the field passed unchallenged — and since the script was only loaded on `/login`, that was every create-post and inquiry submission.
+Always verify with `verifyTurnstile(token, request, env)` from `src/lib/turnstile.ts`. **A missing token is a failure, not a skip** — never gate the call behind `if (token)`.
 
 Required on: login, post creation, message sending, post reporting.
 
@@ -550,7 +553,7 @@ Declared in `[vars]` in `wrangler.toml`, committed, and changed by editing that 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RESTRICT_EDU_EMAILS` | `"false"` | `"true"` limits accounts to addresses ending in `.edu` |
+| `RESTRICT_EDU_EMAILS` | `"true"` | limits accounts to addresses ending in `.edu`; `"false"` allows any address |
 | `TURNSTILE_SITE_KEY` | — (required) | Public Turnstile sitekey. The one definition; both the Worker and the Eleventy build read it |
 
 ### Optional overrides
@@ -570,14 +573,16 @@ Read by `getConfig()` in `src/lib/config.ts`. **None of these are set today**, a
 
 Two rules follow from why it exists:
 
-- **The session TTL is defined once** (`SESSION_TTL_SECONDS`). The session cookie's `Max-Age` and the token's `exp` used to come from two independent 30-day constants in two files, agreeing by coincidence. `handleAuthCallback` now derives both from one local. If they ever diverge, users are silently logged out — never reintroduce a second constant.
+- **The session TTL is defined once** (`SESSION_TTL_SECONDS`), and `handleAuthCallback` derives both the cookie's `Max-Age` and the token's `exp` from that one local. If they ever diverge, users are silently logged out — never reintroduce a second constant.
 - **The origin is derived, not hardcoded.** `APP_ORIGIN` if set, otherwise `new URL(request.url).origin`. Callers with no request in hand (`sendReportEmail`) fall back to the production default, which is what those absolute links always were.
 
 ### `RESTRICT_EDU_EMAILS`
 
-The gate lives in `isEmailAllowed()` (`src/lib/auth.ts`) and is applied in both `handleAuthStart` and `handleAuthCallback`. It fails open — any value other than the literal string `"true"`, including the var being absent, allows all addresses. Override locally with `npx wrangler dev --var RESTRICT_EDU_EMAILS:true`.
+**On since 2026-08-23.** The gate lives in `isEmailAllowed()` (`src/lib/auth.ts`) and is applied in both `handleAuthStart` and `handleAuthCallback`, so a flip takes effect immediately rather than after in-flight magic links expire. It fails open — any value other than the literal string `"true"`, including the var being absent, allows all addresses. Override locally with `npx wrangler dev --var RESTRICT_EDU_EMAILS:false`.
 
-Enabling it rejects international academic domains (`.ac.uk`, `.edu.au`) and locks out existing non-`.edu` users, not just new signups. See CLAUDE.md before flipping it.
+While it is on, international academic domains (`.ac.uk`, `.edu.au`) are rejected, and so are existing non-`.edu` users, not just new signups. There is no admin path back in for an account it excludes — the gate *is* the login — so recovering one means setting the var to `"false"` for a deploy.
+
+The refusal text is `EDU_RESTRICTION_MESSAGE`, exported from the same module and used by both handlers. `handleAuthStart` returns it as the **body of a 403**, and `templates/pages/login.njk` shows that body verbatim in a `.dialog` — which is how a statically-built page shows a message scoped to a runtime var it cannot read. That makes 403 load-bearing: it is the only refusal `handleAuthStart` produces, so do not add a second one. `test/edu-gate.test.ts` covers the status, the body, both flag states, and that a refusal happens before the mailer is reached.
 
 ---
 
@@ -774,7 +779,7 @@ Email bodies use the separate `escapeHtmlForEmail()` in `mailgun.ts` — see the
 
 Edit `renderShell()` in `src/lib/shell.mjs`, then run `npm run build` and commit the regenerated `templates/layouts/base.njk` with it. That is the whole procedure — there is no second copy to update.
 
-This used to read "any nav, header, or footer change must be made in both," which is how `/my-posts` and `/conference/:slug` once rendered with no Login/Logout button at all: `renderFullPage()` was a separate copy and lost `#nav-user-state`. `test/shell.test.ts` now diffs the two rendered documents byte for byte, so that class of drift fails the test suite instead of reaching production.
+`test/shell.test.ts` diffs the two rendered documents byte for byte, so nav/footer drift between the generated layout and `renderFullPage()` fails the test suite instead of reaching production.
 
 Per-page `<head>` content still has two entry points, because static and dynamic pages get it from different places: `{% block head %}` (plus `title` / `description` front matter) for Eleventy pages, the `options` argument for `renderFullPage()`. Both feed the same `renderShell()` parameters.
 

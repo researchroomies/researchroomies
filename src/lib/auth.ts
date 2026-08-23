@@ -20,6 +20,20 @@ export interface SessionPayload {
 }
 
 /**
+ * What a rejected address is told, in one place.
+ *
+ * `handleAuthStart` returns it as the body of its 403 and the login page shows
+ * that body verbatim in a dialog; `handleAuthCallback` renders it into a page
+ * for anyone who reaches the gate from an already-issued link. Keeping it here
+ * rather than in either handler is what lets the static login page display the
+ * server's wording without the build having to know about it.
+ */
+export const EDU_RESTRICTION_MESSAGE =
+    'At this time, ResearchRoomies is only available to users with a .edu email address. ' +
+    'This restriction helps us limit access to members of the academic community and improve ' +
+    'the safety of our service. We apologize for any inconvenience.';
+
+/**
  * Optional .edu-only gate, controlled by the RESTRICT_EDU_EMAILS var in
  * wrangler.toml. Fails open: anything other than the literal string "true"
  * (including the var being absent) allows every address through.

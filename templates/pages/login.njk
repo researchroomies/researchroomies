@@ -24,10 +24,53 @@ description: Log in to ResearchRoomies with a single-use magic link sent to your
     <p class="field-hint">Signing in lets you post, reply to a post, and report one. Reading the site needs no account.</p>
 </div>
 
+{# One dialog, two messages. Native <dialog> so the browser owns the focus trap,
+   Esc-to-close and the backdrop; the script below only fills it and opens it. #}
+<dialog class="dialog" id="noticeDialog" aria-labelledby="noticeTitle">
+    <h2 class="dialog-title" id="noticeTitle"></h2>
+    <p class="dialog-body" id="noticeBody"></p>
+    <div class="dialog-actions">
+        <button class="btn btn-primary" type="button" id="noticeClose" autofocus>Got it</button>
+    </div>
+</dialog>
+
 <script>
     const form = document.getElementById('loginForm');
     const messageDiv = document.getElementById('message');
     const submitBtn = document.getElementById('submitBtn');
+    const noticeDialog = document.getElementById('noticeDialog');
+    const noticeTitle = document.getElementById('noticeTitle');
+    const noticeBody = document.getElementById('noticeBody');
+
+    // The delivery warning is written here rather than server-side because
+    // nothing on the server needs it: it is only ever shown to the person who
+    // just submitted this form.
+    const DELIVERY_NOTICE = 'If this is your first time logging in, your institution may delay ' +
+        'delivery of our login email and/or direct it to your Spam/Junk folder. If you do not ' +
+        'receive the email promptly, you may need to wait up to half an hour and/or check your ' +
+        'Spam/Junk folder. Marking emails from ResearchRoomies as “Not Spam” may help ' +
+        'ensure that future login emails reach your inbox.';
+
+    document.getElementById('noticeClose').addEventListener('click', () => noticeDialog.close());
+
+    function showNotice(title, body) {
+        noticeTitle.textContent = title;
+        noticeBody.textContent = body;
+        // showModal() throws if the dialog is somehow already open; falling back
+        // to the plain message div is better than a dead submit button.
+        if (typeof noticeDialog.showModal === 'function' && !noticeDialog.open) {
+            noticeDialog.showModal();
+        } else {
+            messageDiv.textContent = body;
+        }
+    }
+
+    // A Turnstile token is single-use, so every path that ends without a
+    // successful login has to hand the user a fresh widget or their retry
+    // fails on a token the server has already spent.
+    function resetTurnstile() {
+        if (window.turnstile) window.turnstile.reset();
+    }
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -57,15 +100,24 @@ description: Log in to ResearchRoomies with a single-use magic link sent to your
                 messageDiv.textContent = "Check your email for the magic link!";
                 messageDiv.className = "success";
                 form.reset();
-                if (window.turnstile) window.turnstile.reset();
+                resetTurnstile();
+                showNotice('Check your email', DELIVERY_NOTICE);
+            } else if (res.status === 403) {
+                // The only 403 /api/auth/start returns is the .edu gate, and it
+                // can only fire while RESTRICT_EDU_EMAILS is on — so this branch
+                // is self-scoping. The body is the message; show it as sent.
+                resetTurnstile();
+                showNotice('A .edu email address is required', await res.text());
             } else {
                 const txt = await res.text();
                 messageDiv.textContent = "Error: " + txt;
                 messageDiv.className = "error";
+                resetTurnstile();
             }
         } catch (err) {
             messageDiv.textContent = "Network error. Please try again.";
             messageDiv.className = "error";
+            resetTurnstile();
         } finally {
             submitBtn.disabled = false;
         }
