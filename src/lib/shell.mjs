@@ -35,6 +35,28 @@ const TURNSTILE_SCRIPT =
     '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
 
 /**
+ * The wordmark's two R's, ink and gold, on the cream page ground. The tile is
+ * opaque on purpose: a bare black glyph vanishes against a dark browser tab
+ * bar, and the cream square keeps both letters legible on light and dark chrome
+ * alike without needing a `prefers-color-scheme` variant the tab bar of every
+ * browser would have to honour.
+ *
+ * `rel="alternate icon"` is what makes the SVG win where it is supported and
+ * the .ico serve everyone else — a plain second `rel="icon"` would let a
+ * browser pick either. The .ico also covers the bare `/favicon.ico` that
+ * crawlers and old clients request without reading the markup at all.
+ *
+ * The three files are passthrough-copied to the site root by
+ * eleventy.config.js; `templates/icons/favicon.svg` is the source the other two
+ * are rendered from (see `templates/icons/README.md`).
+ */
+const ICON_LINKS = [
+    '<link rel="icon" href="/favicon.svg" type="image/svg+xml" />',
+    '<link rel="alternate icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />',
+    '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />',
+].join('\n  ');
+
+/**
  * Cormorant Garamond over Lora — the Classical pairing the stylesheet's
  * `--font-heading` / `--font-body` name. Loaded here rather than with an
  * `@import` at the top of style.css: an @import cannot begin fetching until the
@@ -115,6 +137,7 @@ export function renderShell({
         canonical ? `<meta property="og:url" content="${canonical}" />` : '',
         '<meta name="twitter:card" content="summary" />',
         canonical ? `<link rel="canonical" href="${canonical}" />` : '',
+        ICON_LINKS,
         FONT_LINKS,
         '<link rel="stylesheet" href="/style/style.css" />',
         HTMX_SCRIPT,

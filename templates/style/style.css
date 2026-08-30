@@ -541,6 +541,15 @@ a.tag-outline:hover {
     color: var(--color-accent);
 }
 
+/* The wordmark inverts on hover rather than merging into one gold word:
+   `.nav a:hover` above turns "Research" gold, and this turns "Roomies" back to
+   ink, so the two halves swap colors. It needs the `a.nav-brand:hover`
+   qualifier because `.nav-brand-accent` sets its own color and therefore
+   inherits nothing from the anchor's hover state. */
+.nav a.nav-brand:hover .nav-brand-accent {
+    color: var(--color-text);
+}
+
 /* The hairline between the site's own sections and the account link. */
 .nav-rule {
     width: 1px;

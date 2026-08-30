@@ -29,6 +29,17 @@ function readTurnstileSiteKey() {
 
 module.exports = async function(eleventyConfig) {
   eleventyConfig.addPassthroughCopy({"templates/style": "style"});
+
+  // The three favicon files sit at the site root because `/favicon.ico` is
+  // requested there by clients that never read the markup. Copied file by file
+  // rather than as a directory so this line is also the list of what ships.
+  // The Worker's own pages get the same <link> tags from ICON_LINKS in
+  // src/lib/shell.mjs.
+  eleventyConfig.addPassthroughCopy({
+    "templates/icons/favicon.svg": "favicon.svg",
+    "templates/icons/favicon.ico": "favicon.ico",
+    "templates/icons/apple-touch-icon.png": "apple-touch-icon.png",
+  });
   eleventyConfig.addGlobalData("turnstileSiteKey", readTurnstileSiteKey());
 
   // Consumed by templates/layouts/base.njk, which is generated from
