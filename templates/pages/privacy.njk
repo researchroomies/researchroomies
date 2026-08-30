@@ -6,7 +6,7 @@ description: How ResearchRoomies collects, uses, and shares information about th
 {% block content %}
 <div class="site-page">
   <h1>Privacy Policy</h1>
-  <p><strong>Effective Date:</strong> October 30, 2025</p>
+  <p><strong>Effective Date:</strong> August 30, 2026</p>
   <p>This Privacy Policy explains how Research Roomies ("we," "us," or "our") collects, uses, and shares information when you use our website and services. By using the Service, you agree to the practices described in this policy.</p>
 
   <h3>1. Introduction</h3>
@@ -19,20 +19,31 @@ description: How ResearchRoomies collects, uses, and shares information about th
   <div class="table-scroll">
     <table class="table">
       <tr><th>Data Type</th><th>Obtained Via</th><th>Disclosed To/ Accessibility</th></tr>
-      <tr><td>Email Address</td><td>User Entry</td><td>Not publicly visible; may be shared only with other users when you choose to contact them</td></tr>
+      <tr><td>Email Address</td><td>User Entry</td><td>Not publicly visible; email is shared with a user when either (1) you send an inquiry to their post OR (2) you respond to an inquiry to your post</td></tr>
       <tr><td>Conference Information</td><td>User Entry</td><td>Publicly viewable on our website</td></tr>
+      <tr><td>Academic position and institution</td><td>User Entry</td><td>Required on each post and publicly viewable on our website</td></tr>
       <tr><td>Content you voluntarily post</td><td>User Entry</td><td>Publicly viewable on our website</td></tr>
     </table>
   </div>
 
+  <p><strong>Publicly Posted Information</strong><br/>
+  Information that you voluntarily include in a post or otherwise make publicly available through the Service may be viewed by other users and third parties. Publicly posted information may also be copied, saved, or shared by others. Please do not include personal or sensitive information in a public post that you do not want to make publicly available.</p>
+
+  <p><strong>Reports and Communications</strong><br/>
+  If you report a post, contact Research Roomies, or otherwise communicate with us, we may collect the information you provide, including your email address and the contents of your communication.</p>
+
   <p><strong>Automatically collected information</strong><br/>
-  We may collect limited technical data such as:</p>
+  We do not use third-party analytics or advertising trackers, and we set no tracking cookies. The technical data that reaches us is what any website necessarily receives, together with what our infrastructure providers log on our behalf:</p>
   <ul>
-    <li>Browser and device type</li>
-    <li>General usage statistics</li>
-    <li>Cookies / analytics data for site functionality</li>
+    <li><strong>Request and network data.</strong> Your IP address, browser and device type, the pages you request, and the time of each request are logged by Cloudflare, which hosts and delivers the Service. We use these logs only to operate, debug, and secure the site, and they are retained for a short period.</li>
+    <li><strong>Bot protection.</strong> Every page loads Cloudflare Turnstile, which we use to keep automated traffic off our sign-in and posting forms. Turnstile receives your IP address and characteristics of your browser in order to tell people apart from bots. When you submit a protected form, we also send your IP address to Cloudflare to validate the result.</li>
+    <li><strong>Third-party assets.</strong> Every page loads fonts from Google Fonts (<code>fonts.googleapis.com</code>, <code>fonts.gstatic.com</code>) and a JavaScript library from the jsDelivr CDN (<code>cdn.jsdelivr.net</code>). Requesting those files discloses your IP address and browser type to those providers. We send them nothing else about you.</li>
+    <li><strong>Aggregate usage counts.</strong> Cloudflare reports totals such as request and error counts to us. These are aggregate figures about the site, not per-user records.</li>
   </ul>
-  <p>We do not track users across third-party sites.</p>
+
+  <p><strong>Cookies</strong><br/>
+  We set exactly one cookie, <code>rr_session</code>, and only after you sign in. It holds a signed token identifying your account so that you stay logged in; it cannot be read by JavaScript, is sent only to this site, and expires after 30 days or when you log out. We use no analytics, advertising, or tracking cookies. Cloudflare may set its own cookies as part of protecting the site from automated traffic.</p>
+  <p>We do not track users across third-party sites, and we do not build advertising or behavioral profiles.</p>
 
   <h3>3. How We Use Information</h3>
   <p>We use collected information to:</p>
@@ -40,9 +51,14 @@ description: How ResearchRoomies collects, uses, and shares information about th
     <li>Operate and maintain the website</li>
     <li>Facilitate user-to-user connections</li>
     <li>Respond to reports and inquiries</li>
+    <li>Investigate potentially fraudulent, abusive, or prohibited activity</li>
+    <li>Enforce our Terms of Service</li>
     <li>Improve site safety and functionality</li>
   </ul>
   <p>We do not verify identity information provided by users.</p>
+
+  <p><strong>Academic Email Requirement</strong><br/>
+  Research Roomies currently restricts registration and access to users with .edu email addresses. Possession of an .edu email address does not mean that Research Roomies has independently verified a user's identity, academic status, affiliation, or intentions.</p>
 
   <h3>4. When We Share Information</h3>
   <p>We may share information:</p>
@@ -52,8 +68,20 @@ description: How ResearchRoomies collects, uses, and shares information about th
     <li>To protect the rights, property, or safety of Research Roomies or others</li>
     <li>To enforce our Terms of Service</li>
     <li>As part of a transfer of ownership if Research Roomies is acquired or reorganized</li>
+    <li>With third-party service providers that help us host, operate, secure, authenticate, analyze, or otherwise provide the Service</li>
   </ul>
-  <p>We do not share personal information for advertising or marketing.</p>
+  <p>Third-party service providers may process information on our behalf as necessary to provide their services. We do not share personal information for advertising or marketing.</p>
+  <p>The providers we currently rely on are:</p>
+  <div class="table-scroll">
+    <table class="table">
+      <tr><th>Provider</th><th>Purpose</th><th>Information It Receives</th></tr>
+      <tr><td>Cloudflare</td><td>Hosting, content delivery, database, and bot protection (Turnstile)</td><td>Your IP address, browser and device type, and the pages you request; everything you submit through the site passes through it, and your account and post data are stored there</td></tr>
+      <tr><td>Mailgun</td><td>Sending login links, inquiry notifications, and report notifications</td><td>The recipient's email address and the contents of the message, including your email address when you send an inquiry</td></tr>
+      <tr><td>Google Fonts</td><td>Web fonts loaded on every page</td><td>Your IP address and browser type</td></tr>
+      <tr><td>jsDelivr</td><td>JavaScript library loaded on every page</td><td>Your IP address and browser type</td></tr>
+      <tr><td>Buy Me a Coffee</td><td>Voluntary donations</td><td>Nothing unless you follow the donation link, after which that provider's own privacy policy applies</td></tr>
+    </table>
+  </div>
 
   <h3>5. Data Retention</h3>
   <p>We retain personal data only as long as needed to provide the Service and meet legal obligations. Backups may retain residual information temporarily.</p>
@@ -66,14 +94,14 @@ description: How ResearchRoomies collects, uses, and shares information about th
   <p>We comply with applicable U.S. privacy laws. If your state provides specific privacy rights, you may contact us at <a href="mailto:admin@researchroomies.com">admin@researchroomies.com</a> to exercise them.</p>
 
   <h3>8. International Users</h3>
-  <p>The Service is operated in the United States. If you access it from outside the U.S., your data may be transferred to and processed in the U.S., where privacy laws may differ. By using the Service, you consent to this processing.</p>
-  <p>We do not market to users outside the United States.</p>
+  <p>The Service is operated in the United States. If you access the Service from outside the United States, your information may be transferred to, processed, and stored in the United States, where privacy laws may differ from those in your country. We do not specifically market the Service to users outside the United States.</p>
 
   <h3>9. Your Choices</h3>
-  <p>You may request deletion of your data or account at <a href="mailto:admin@researchroomies.com">admin@researchroomies.com</a>. We may retain information as required by law or for legitimate administrative purposes.</p>
+  <p>You may request deletion of your account and personal information by contacting us at <a href="mailto:admin@researchroomies.com">admin@researchroomies.com</a>. Some information may be retained where required by law, necessary for legitimate administrative purposes, or contained in backups that cannot be immediately modified.</p>
+  <p>Information that you have voluntarily made publicly available through the Service may have been copied or saved by other users or third parties. We cannot control or guarantee the deletion of copies of publicly available information that have been made by others.</p>
 
   <h3>10. Donations</h3>
-  <p>We may offer voluntary donation links through a third-party platform. We do not collect or store payment information. Donations do not create a financial services relationship or guarantee any service level.</p>
+  <p>We may offer voluntary donation links through third-party services such as Buy Me a Coffee. We do not collect or store payment card or banking information associated with donations. Donation transactions are processed by the applicable third-party provider and are subject to that provider's privacy policy. Donations are voluntary and do not create any obligation to provide a particular service or benefit.</p>
 
   <h3>11. Updates</h3>
   <p>We may update this Privacy Policy from time to time. The date above reflects the latest version. Continued use of the Service after updates constitutes acceptance. We will notify users of material changes where legally required.</p>
