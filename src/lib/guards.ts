@@ -1,4 +1,5 @@
 import type { SessionPayload } from './auth';
+import { ARCHIVED_NOTICE, isArchived } from './archive';
 import { getPostWithConference } from '../db/posts';
 import type { PostDetail } from '../db/types';
 import { parseRouteId } from './params';
@@ -132,4 +133,32 @@ export async function requireOwnedPost(
 	}
 
 	return { ok: true, value: { user, post } };
+}
+
+/**
+ * `requireOwnedPost()`, plus the post's conference still being ahead of us.
+ *
+ * The edit pair asks for this; the delete pair deliberately does not. Archiving
+ * exists to stop a stale offer being presented as a live one, and an edit is how
+ * a post stays presented — so it closes with the conference, while deleting the
+ * post it left behind stays available forever. Making that the difference
+ * between two guards rather than an `if` in each handler is what keeps the two
+ * edit entry points (the form and its submit) from drifting apart, which is the
+ * same reason `requireOwnedPost()` exists at all.
+ *
+ * 403 rather than 404: the post is still there and still the caller's, and
+ * saying so is the only way the refusal reads as "this is over" rather than as a
+ * bug.
+ */
+export async function requireEditablePost(
+	request: Request,
+	env: Env,
+	params: Record<string, string> | undefined,
+): Promise<Guard<{ user: SessionPayload; post: OwnedPost }>> {
+	const guard = await requireOwnedPost(request, env, params);
+	if (!guard.ok) return guard;
+
+	if (isArchived(guard.value.post)) return fail(forbiddenPage(ARCHIVED_NOTICE));
+
+	return guard;
 }

@@ -112,6 +112,26 @@ export function ts(date: string): number {
 	return Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 1000);
 }
 
+/**
+ * A `YYYY-MM-DD` date `days` from today, for fixtures whose behaviour depends on
+ * whether the conference is over.
+ *
+ * Archiving is a comparison against the wall clock (see src/lib/archive.ts), so
+ * a fixture written as a literal date is a test that passes until that date goes
+ * by and then fails for a reason nobody will connect to it. Every conference in
+ * this suite that must be live, or must be finished, says which relative to now.
+ */
+export function dateFromNow(days: number): string {
+	const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+	return date.toISOString().slice(0, 10);
+}
+
+/** A conference far enough ahead that nothing in the suite can archive it. */
+export const UPCOMING = { start: dateFromNow(30), stop: dateFromNow(34) };
+
+/** A conference far enough behind that it is unambiguously archived. */
+export const FINISHED = { start: dateFromNow(-34), stop: dateFromNow(-30) };
+
 export async function seedUser(email: string): Promise<number> {
 	return await upsertUserOnLogin(testEnv, email, ts('2026-01-01'));
 }

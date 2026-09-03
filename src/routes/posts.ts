@@ -1,7 +1,7 @@
 import { sessionUserId } from "../lib/session";
 import { escapeHtml } from "../lib/html";
 import { errorPage, pageResponse } from "../lib/response";
-import { requireOwnedPost } from "../lib/guards";
+import { requireEditablePost, requireOwnedPost } from "../lib/guards";
 import { deletePostAndFlags, updatePost } from "../db/posts";
 import { setShareTypesForPost } from "../db/share-types";
 import { renderShareTypePicker, submittedShareTypes } from "../lib/share-types";
@@ -21,11 +21,16 @@ import { readAuthorFields, renderAuthorFields } from "../lib/positions";
  * The *reading* side, which renders for anonymous viewers too, is in
  * post-detail.ts; the author's own listing is in my-posts.ts.
  *
- * All three handlers here are "session → parse id → fetch post → compare
+ * All four handlers here are "session → parse id → fetch post → compare
  * user_id", which used to be written out by hand. `requireOwnedPost()` is that
  * sequence; its 302 / 404 / 403 responses are the ones these handlers returned
  * themselves, and it catches its own D1 errors, so none of them needs a `try`
  * around the lookup.
+ *
+ * The edit pair asks for `requireEditablePost()` instead, which adds "and the
+ * conference has not finished". Delete deliberately keeps the plain guard:
+ * archiving stops a stale offer being *presented*, and clearing one away is the
+ * opposite of that.
  */
 
 export async function handleEditPostForm(
@@ -34,7 +39,10 @@ export async function handleEditPostForm(
   _ctx: ExecutionContext,
   params?: Record<string, string>,
 ): Promise<Response> {
-  const guard = await requireOwnedPost(request, env, params);
+  // Editable, not merely owned: a post whose conference has finished is closed
+  // to edits. Both entry points ask the same guard, so the form and its submit
+  // cannot disagree about whether this post is still open.
+  const guard = await requireEditablePost(request, env, params);
   if (!guard.ok) return guard.response;
   const { post } = guard.value;
 
@@ -102,7 +110,7 @@ export async function handleEditPostSubmit(
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const guard = await requireOwnedPost(request, env, params);
+  const guard = await requireEditablePost(request, env, params);
   if (!guard.ok) return guard.response;
   const { user, post } = guard.value;
 

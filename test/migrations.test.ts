@@ -72,11 +72,32 @@ describe('0002 settles the subject slugs', () => {
 	});
 });
 
-describe('0003 seeds the share types', () => {
+describe('0003 seeds the share types, 0005 renames one', () => {
 	it('leaves the five types in curated order', async () => {
 		const types = await listShareTypes(testEnv);
 
-		expect(types.map((type) => type.slug)).toEqual(['lodging', 'carpool', 'rental-car', 'airport-transfer', 'other']);
+		expect(types.map((type) => type.slug)).toEqual(['lodging', 'carpool', 'rental-car', 'rideshare', 'other']);
 		expect(types.at(-1)?.name).toBe('Other');
+	});
+
+	it('retires the airport-transfer slug rather than leaving both', async () => {
+		// The same failure 0002 was written for: an upsert that adds the new row
+		// without removing the old one leaves the picker showing two boxes for
+		// one thing.
+		const types = await listShareTypes(testEnv);
+
+		expect(types.map((type) => type.slug)).not.toContain('airport-transfer');
+		expect(types.find((type) => type.slug === 'rideshare')?.name).toBe('Rideshare/Taxi');
+	});
+});
+
+describe('0005 renames the mathematics subject', () => {
+	it('keeps the slug and changes only the display name', async () => {
+		// The slug addresses /subject/:slug and every conference_tags row, so a
+		// label change must not move it — that is the difference between this
+		// rename and the share-type one above.
+		const math = (await listTags(testEnv)).find((tag) => tag.slug === 'mathematics');
+
+		expect(math?.name).toBe('Mathematics & Statistics');
 	});
 });

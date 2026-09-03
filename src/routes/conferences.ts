@@ -1,4 +1,5 @@
 import { escapeHtml, formatDate, formatDateRange, summarize } from "../lib/html";
+import { getConfig } from "../lib/config";
 import {
   errorPage,
   fragmentResponse,
@@ -14,6 +15,7 @@ import { listTagsForConference } from "../db/tags";
 import { listShareTypesForPosts } from "../db/share-types";
 import { shareTypeBadges } from "../lib/share-types";
 import { authorLine } from "../lib/positions";
+import { ARCHIVED_NOTICE, isArchived } from "../lib/archive";
 import type {
   Conference,
   ConferenceWithPostCount,
@@ -45,9 +47,12 @@ function renderTagChips(tags: Tag[]): string {
 
 function renderFeaturedConferences(
   conferences: ConferenceWithPostCount[],
+  adminEmail: string,
 ): string {
   if (conferences.length === 0) {
-    return `<p class="empty-state">No featured conferences yet. <a href="/conferences">Browse all conferences</a>.</p>`;
+    // An invitation rather than an apology: featuring is something we do by
+    // hand, so the only way this list grows is somebody asking.
+    return `<p class="empty-state"><a href="mailto:${escapeHtml(adminEmail)}">Contact us</a> and we may feature your conference on our site!</p>`;
   }
 
   const cards = conferences
@@ -114,9 +119,12 @@ function renderShareFilter(
 function renderPostList(
   posts: Post[],
   shareTypes: Map<number, ShareType[]>,
+  archived: boolean,
 ): string {
   if (posts.length === 0) {
-    return `<p class="empty-state">No posts for this conference yet. <a href="/create">Post the first one</a>.</p>`;
+    return archived
+      ? `<p class="empty-state">Nobody posted for this conference, and it has now finished.</p>`
+      : `<p class="empty-state">No posts for this conference yet. <a href="/create">Post the first one</a>.</p>`;
   }
 
   return `<div class="listing">${posts
@@ -143,6 +151,7 @@ function renderConferencePage(
   tags: Tag[],
   shareTypes: Map<number, ShareType[]>,
 ): string {
+  const archived = isArchived(conference);
   // No subject in the breadcrumb: a conference can carry several, and picking
   // the first would name one arbitrarily. The chips under the title show them all.
   return `
@@ -152,6 +161,7 @@ function renderConferencePage(
         <h1 class="page-title">${escapeHtml(conference.name)}</h1>
         ${conference.description ? `<p class="page-lede">${escapeHtml(conference.description)}</p>` : ""}
         ${renderTagChips(tags)}
+        ${archived ? `<p class="form-notice">${escapeHtml(ARCHIVED_NOTICE)}</p>` : ""}
       </div>
       <dl class="conference-facts">
         <dt>Dates</dt><dd>${formatDateRange(conference.start_time, conference.stop_time)}</dd>
@@ -165,14 +175,22 @@ function renderConferencePage(
           <h6>Posts for this conference</h6>
           ${renderShareFilter(conference, posts, shareTypes)}
         </div>
-        ${renderPostList(posts, shareTypes)}
+        ${renderPostList(posts, shareTypes, archived)}
       </section>
       <aside class="aside-stack">
-        <div class="aside-box">
+        ${
+          archived
+            ? `<div class="aside-box">
+          <h4>This one has finished</h4>
+          <p class="aside-note">The posts below are kept as a record. New posts go to conferences that are still ahead.</p>
+          <a href="/conferences" class="btn btn-secondary btn-block">Find an upcoming conference</a>
+        </div>`
+            : `<div class="aside-box">
           <h4>Going to this one?</h4>
           <p class="aside-note">Post what you're willing to share — a spare bed, a seat in the car, or both.</p>
           <a href="/create" class="btn btn-primary btn-block">Post for this conference</a>
-        </div>
+        </div>`
+        }
         <div class="aside-section">
           <h6>Browse</h6>
           <div class="stacked-links">
@@ -195,7 +213,10 @@ export async function handleFeaturedConferences(
 ): Promise<Response> {
   try {
     const conferences = await listFeaturedConferences(env);
-    const html = renderFeaturedConferences(conferences);
+    const html = renderFeaturedConferences(
+      conferences,
+      getConfig(env).adminEmail,
+    );
 
     return fragmentResponse(html, { cache: "public-short" });
   } catch (error) {

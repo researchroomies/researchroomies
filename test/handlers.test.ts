@@ -21,6 +21,8 @@ import {
 	testEnv,
 	testRequest,
 	ts,
+	FINISHED,
+	UPCOMING,
 } from './helpers/seed';
 
 /**
@@ -60,8 +62,9 @@ describe('handleCreatePost', () => {
 			userId,
 			name: 'Quantum Computing Summit',
 			slug: 'quantum-computing-summit',
-			start: '2026-03-01',
-			stop: '2026-03-05',
+			// Ahead of now, because posting against a finished conference is
+			// refused — the archiving rules have their own describe block below.
+			...UPCOMING,
 		});
 		return { userId, conferenceId, cookie: await sessionCookie(userId) };
 	}
@@ -117,8 +120,8 @@ describe('handleCreatePost', () => {
 					title: 'Carpool',
 					description: 'Driving up Monday',
 					new_conf_name: 'Marine Biology Congress',
-					new_conf_start: '2026-06-10',
-					new_conf_end: '2026-06-15',
+					new_conf_start: UPCOMING.start,
+					new_conf_end: UPCOMING.stop,
 					new_conf_city: 'San Diego',
 					new_conf_state: 'CA',
 					'cf-turnstile-response': 'token',
@@ -134,8 +137,8 @@ describe('handleCreatePost', () => {
 			name: 'Marine Biology Congress',
 			// City and state are stored as one free-text field.
 			location_address: 'San Diego, CA',
-			start_time: ts('2026-06-10'),
-			stop_time: ts('2026-06-15'),
+			start_time: ts(UPCOMING.start),
+			stop_time: ts(UPCOMING.stop),
 		});
 	});
 
@@ -145,8 +148,7 @@ describe('handleCreatePost', () => {
 			userId,
 			name: 'Marine Biology Congress',
 			slug: 'marine-biology-congress',
-			start: '2025-06-10',
-			stop: '2025-06-15',
+			...FINISHED,
 		});
 		expectTurnstile(true);
 
@@ -160,8 +162,8 @@ describe('handleCreatePost', () => {
 					title: 'Carpool',
 					description: 'Driving up Monday',
 					new_conf_name: 'Marine Biology Congress',
-					new_conf_start: '2026-06-10',
-					new_conf_end: '2026-06-15',
+					new_conf_start: UPCOMING.start,
+					new_conf_end: UPCOMING.stop,
 					'cf-turnstile-response': 'token',
 				},
 			}),
@@ -171,10 +173,10 @@ describe('handleCreatePost', () => {
 
 		// The first conference keeps its slug; the newer one is still reachable.
 		expect(await getConferenceBySlug(testEnv, 'marine-biology-congress')).toMatchObject({
-			start_time: ts('2025-06-10'),
+			start_time: ts(FINISHED.start),
 		});
 		expect(await getConferenceBySlug(testEnv, 'marine-biology-congress-2')).toMatchObject({
-			start_time: ts('2026-06-10'),
+			start_time: ts(UPCOMING.start),
 		});
 	});
 
@@ -192,8 +194,8 @@ describe('handleCreatePost', () => {
 					title: 'Carpool',
 					description: 'Driving up Monday',
 					new_conf_name: 'Marine Biology Congress',
-					new_conf_start: '2026-06-10',
-					new_conf_end: '2026-06-15',
+					new_conf_start: UPCOMING.start,
+					new_conf_end: UPCOMING.stop,
 					// The second is not in `tags`, so it must not create one.
 					conf_tags: ['biology', 'not-a-real-subject'],
 					'cf-turnstile-response': 'token',
@@ -287,8 +289,7 @@ describe('handleMyPosts', () => {
 			userId: mine,
 			name: 'Quantum Computing Summit',
 			slug: 'quantum-computing-summit',
-			start: '2026-03-01',
-			stop: '2026-03-05',
+			...UPCOMING,
 		});
 		await seedPost({ userId: mine, conferenceId, title: 'My own post', description: 'x' });
 		await seedPost({ userId: theirs, conferenceId, title: 'Somebody else post', description: 'y' });
@@ -333,8 +334,7 @@ async function ownedPost() {
 		userId: owner,
 		name: 'Quantum Computing Summit',
 		slug: 'quantum-computing-summit',
-		start: '2026-03-01',
-		stop: '2026-03-05',
+		...UPCOMING,
 	});
 	const postId = await seedPost({
 		userId: owner,
@@ -512,8 +512,7 @@ describe('handlePostPage report link', () => {
 			userId: authorId,
 			name: 'Topology Workshop',
 			slug: 'topology-workshop',
-			start: '2026-04-01',
-			stop: '2026-04-03',
+			...UPCOMING,
 		});
 		const postId = await seedPost({
 			userId: authorId,

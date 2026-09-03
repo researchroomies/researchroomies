@@ -252,13 +252,21 @@ export async function searchPosts(env: Env, filters: SearchFilters): Promise<Pos
 	return results ?? [];
 }
 
-/** Where an inquiry about a post should be delivered, and about what. */
+/**
+ * Where an inquiry about a post should be delivered, about what, and until when.
+ *
+ * The join to `conferences` is here for that last column: an archived post takes
+ * no inquiries, and the handler must decide that against the same row it is
+ * about to mail. Two queries — one for the address, one for the date — could
+ * disagree about which post they described.
+ */
 export async function getPostAuthorContact(env: Env, postId: number): Promise<PostAuthorContact | null> {
 	return await env.DB.prepare(
 		`
-		SELECT u.email, p.title
+		SELECT u.email, p.title, c.stop_time
 		FROM posts p
 		JOIN users u ON p.user_id = u.id
+		JOIN conferences c ON p.conference_id = c.id
 		WHERE p.id = ?
 	`,
 	)

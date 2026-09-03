@@ -17,6 +17,7 @@ import type {
 	Conference,
 	ConferenceListing,
 	ConferenceSummary,
+	ConferenceTiming,
 	ConferenceWithPostCount,
 	NewConference,
 } from './types';
@@ -40,16 +41,50 @@ export async function getConferenceBySlug(env: Env, slug: string): Promise<Confe
  * Returns `ConferenceSummary`, not `Conference`. This is the query that used to
  * be typed as returning full conferences while selecting two columns, with an
  * `as unknown as` making the difference invisible.
+ *
+ * `cutoff` drops the conferences that are over, because this list is the one
+ * place a conference is *chosen* rather than read: offering to share a room at a
+ * conference that finished last month is the one thing archiving exists to
+ * prevent. Every other listing query is deliberately unfiltered — see
+ * src/lib/archive.ts for why finished conferences stay visible everywhere else.
+ * The cutoff is a parameter rather than a clock read in here so the query stays
+ * a pure function of its arguments; `archiveCutoff()` is the only caller-side
+ * source of it.
  */
-export async function listConferences(env: Env): Promise<ConferenceSummary[]> {
+export async function listConferences(env: Env, cutoff: number): Promise<ConferenceSummary[]> {
 	const { results } = await env.DB.prepare(
 		`
 		SELECT id, name
 		FROM conferences
+		WHERE stop_time > ?
 		ORDER BY name ASC
 	`,
-	).all<ConferenceSummary>();
+	)
+		.bind(cutoff)
+		.all<ConferenceSummary>();
 	return results ?? [];
+}
+
+/**
+ * When a conference ends, by id — the one fact `handleCreatePost` needs before
+ * it will write a post against a conference the form named.
+ *
+ * A narrow shape for a narrow question, following the rule `ConferenceSummary`
+ * set: the handler wants one column and must not be handed a type that promises
+ * six. It is a separate lookup rather than a filter on the insert because the
+ * refusal has to be a 400 the poster can read, not a silently dropped write.
+ */
+export async function getConferenceStopTime(env: Env, id: number): Promise<number | null> {
+	const row = await env.DB.prepare(
+		`
+		SELECT stop_time
+		FROM conferences
+		WHERE id = ?
+	`,
+	)
+		.bind(id)
+		.first<ConferenceTiming>();
+	return row ? row.stop_time : null;
 }
 
 /**

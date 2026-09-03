@@ -44,6 +44,19 @@ export interface ConferenceSummary {
 	name: string;
 }
 
+/**
+ * What `SELECT stop_time FROM conferences` returns — when a conference ends,
+ * and nothing else.
+ *
+ * The narrowest of the conference shapes, and separate for the reason
+ * `ConferenceSummary` is: `handleCreatePost` needs one column to decide whether
+ * the conference is archived, and handing it a type that promises six is how
+ * the old `as unknown as` lies started.
+ */
+export interface ConferenceTiming {
+	stop_time: number;
+}
+
 /** A conference on a subject page, carrying its post count from a GROUP BY. */
 export interface ConferenceWithPostCount extends ConferenceListing {
 	post_count: number;
@@ -120,10 +133,17 @@ export interface PostDetail {
 	institution: string | null;
 }
 
-/** Where an inquiry about a post gets delivered. */
+/**
+ * Where an inquiry about a post gets delivered, and whether it still may be.
+ *
+ * `stop_time` is the conference's, and it is here because the archived check has
+ * to happen on the same row the address comes from. Reading it separately would
+ * be a second query that can disagree with the first about which post this is.
+ */
 export interface PostAuthorContact {
 	email: string;
 	title: string;
+	stop_time: number;
 }
 
 /** A curated subject tag. */
@@ -147,7 +167,7 @@ export interface ConferenceTag extends Tag {
 
 /**
  * One of the curated things a post offers to share — lodging, a carpool seat,
- * a rental car, an airport transfer, or something else.
+ * a rental car, a rideshare or taxi, or something else.
  *
  * A post carries any number of these, including none: every post that predates
  * the feature has none, and the pickers are optional, so "untyped" is a normal

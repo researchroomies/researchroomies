@@ -4,6 +4,7 @@ import { verifyTurnstile } from "../lib/turnstile";
 import { parseRouteId } from "../lib/params";
 import { getPostAuthorContact } from "../db/posts";
 import { recordMessage } from "../db/moderation";
+import { ARCHIVED_NOTICE, isArchived } from "../lib/archive";
 
 /**
  * `POST /api/message/send` — the inquiry form on a post page.
@@ -51,6 +52,13 @@ export async function handleMessageSend(
 
     if (!recipient) {
       return new Response("Post not found", { status: 404 });
+    }
+
+    // The post page hides this form once the conference is over, so reaching
+    // here means a stale page or a hand-made POST. Checked against the row the
+    // address came from rather than against anything the form said.
+    if (isArchived(recipient)) {
+      return new Response(ARCHIVED_NOTICE, { status: 403 });
     }
 
     const success = await sendInquiryEmail(

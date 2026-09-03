@@ -3,7 +3,12 @@ import { requireUser } from "../lib/guards";
 import { verifyTurnstile } from "../lib/turnstile";
 import { parseRouteId } from "../lib/params";
 import { createPost } from "../db/posts";
-import { createConference, reserveSlug } from "../db/conferences";
+import {
+  createConference,
+  getConferenceStopTime,
+  reserveSlug,
+} from "../db/conferences";
+import { isArchivedStopTime } from "../lib/archive";
 import { tagConference } from "../db/tags";
 import { setShareTypesForPost } from "../db/share-types";
 import { submittedShareTypes } from "../lib/share-types";
@@ -100,6 +105,17 @@ export async function handleCreatePost(
         return new Response("Invalid conference dates", { status: 400 });
       }
 
+      // Refused before the insert, not after: a conference that is already over
+      // would be archived the moment it existed, so creating one can only leave
+      // an unusable row holding a slug — the orphan the note above describes,
+      // arrived at deliberately instead of by a failure.
+      if (isArchivedStopTime(stopTime, now)) {
+        return new Response(
+          "That conference has already finished. Posts can only be created for conferences that have not ended yet.",
+          { status: 400 },
+        );
+      }
+
       const newConferenceId = await createConference(env, {
         userId,
         name: newConfName,
@@ -124,6 +140,21 @@ export async function handleCreatePost(
     const parsedConferenceId = parseRouteId(conferenceId);
     if (parsedConferenceId === null) {
       return new Response("Invalid conference", { status: 400 });
+    }
+
+    // The picker only offers live conferences, but the id arrives in a form body
+    // and a form body is never trusted — the same rule `requireOwnedPost()`
+    // follows. A conference that ended between the page load and the submit
+    // lands here too, which is the case a filtered `<option>` list cannot cover.
+    const stopTime = await getConferenceStopTime(env, parsedConferenceId);
+    if (stopTime === null) {
+      return new Response("Invalid conference", { status: 400 });
+    }
+    if (isArchivedStopTime(stopTime, now)) {
+      return new Response(
+        "That conference has already finished. Posts can only be created for conferences that have not ended yet.",
+        { status: 400 },
+      );
     }
 
     const postId = await createPost(env, {

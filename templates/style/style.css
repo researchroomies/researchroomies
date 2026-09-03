@@ -1353,6 +1353,15 @@ footer {
     padding-top: var(--space-1);
 }
 
+/* A stated fact where a control would otherwise sit — the signed-in address on
+   the create form. Deliberately not an .input[readonly]: a box that looks
+   editable and is not is a worse answer than plain text. */
+.field-value {
+    margin: 0;
+    font-size: 14px;
+    color: var(--color-text);
+}
+
 .field-hint {
     margin: var(--space-1) 0 0;
     font-size: 12px;
@@ -1494,6 +1503,12 @@ footer {
     display: flex;
     gap: var(--space-3);
     font-size: 13px;
+}
+
+/* Where Edit sits on a post whose conference has finished. Muted, because it is
+   a state rather than an action. */
+.post-archived {
+    color: var(--color-neutral-600);
 }
 
 .conference-info {

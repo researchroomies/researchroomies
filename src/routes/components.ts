@@ -2,6 +2,7 @@ import { optionalUser, requireUser } from "../lib/guards";
 import { escapeHtml, formatDay, formatYear, summarize } from "../lib/html";
 import { fragmentResponse } from "../lib/response";
 import { listConferences } from "../db/conferences";
+import { archiveCutoff } from "../lib/archive";
 import { listTags } from "../db/tags";
 import { listRecentPosts } from "../db/posts";
 import { listShareTypesForPosts } from "../db/share-types";
@@ -32,7 +33,10 @@ export async function handleComponentCreateFormAuth(
   if (!guard.ok) return guard.response;
   const user = guard.value;
 
-  const html = `<div id="auth-email-container" class="field"><label>Email</label><input class="input" type="email" name="email" value="${escapeHtml(user.email)}" readonly /></div>`;
+  // Rendered as text rather than a readonly <input>: nothing reads `email` off
+  // this form — `handleCreatePost` takes the address from the session — so a box
+  // was only ever inviting people to try editing a field that does not exist.
+  const html = `<div id="auth-email-container" class="field"><label>Email</label><p class="field-value">${escapeHtml(user.email)}</p><p class="field-hint">This is the email that inquiries will be sent to, but inquirers will not have access to your email until you respond to them.</p></div>`;
   // Contains the viewer's own email address — private is the default here.
   return fragmentResponse(html);
 }
@@ -43,7 +47,10 @@ export async function handleComponentConferenceOptions(
   ctx: ExecutionContext,
 ): Promise<Response> {
   try {
-    const conferences = await listConferences(env);
+    // Only conferences that have not finished: this list is the one place a
+    // conference is chosen rather than read, and `handleCreatePost` refuses the
+    // rest anyway. Offering one it would reject is offering a dead end.
+    const conferences = await listConferences(env, archiveCutoff());
     const optionsHtml = conferences
       .map(
         (conf) =>

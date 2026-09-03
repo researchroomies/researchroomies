@@ -14,6 +14,7 @@ import {
 	sessionCookie,
 	testEnv,
 	testRequest,
+	UPCOMING,
 } from './helpers/seed';
 
 /**
@@ -47,8 +48,7 @@ beforeEach(async () => {
 		name: 'Quantum Computing Summit',
 		slug: 'quantum-computing-summit',
 		locationAddress: 'Boston, MA',
-		start: '2026-03-01',
-		stop: '2026-03-05',
+		...UPCOMING,
 	});
 });
 

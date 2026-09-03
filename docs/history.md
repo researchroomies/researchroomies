@@ -753,3 +753,122 @@ instead of being drawn wherever the line count happened to allow.
   sibling import, a padded file, and a deleted `ROUTES` row each fail it.
 - **No behaviour changed**, deliberately or otherwise. This is the only task in
   the six with an empty "deliberate behaviour changes" list.
+
+---
+
+# Conference archiving and the 2026-09-03 copy round
+
+A single feedback round from Eric Burkholder, tracked in `updates.md` at the
+repo root. Most of it was copy; one item was a feature.
+
+## Archiving finished conferences
+
+**The ask:** once a conference's last day has passed, it and its posts should be
+archived — the conference stops being selectable when creating a post, its posts
+stop accepting inquiries, and its posts stop being editable.
+
+**No column, and no sweep job.** The obvious implementation is
+`conferences.is_archived` plus a cron that sets it, and it was rejected: the
+answer is already in `conferences.stop_time`, and a stored flag is a second
+answer that can disagree with the first. A flag would be wrong for every
+conference between its last day and the next run of the sweep, and wrong forever
+for any conference whose dates were later corrected. `src/lib/archive.ts` is the
+whole feature: one comparison, asked wherever it matters, so every part of the
+app archives a conference at the same instant.
+
+**The grace day is load-bearing.** `stop_time` is midnight UTC *at the start of*
+the last day — that is what `<input type="date">` submits and what
+`createConference()` stores. Comparing `stop_time` against now directly would
+archive a conference on the morning of its closing session, which is precisely
+when someone is most likely to be looking for a ride back. `ARCHIVE_GRACE_SECONDS`
+is 24 hours and `isArchivedStopTime()` is the only place the comparison is
+written.
+
+**What archiving does not do.** It hides nothing. `/conferences`, `/search`,
+`/subject/:slug`, the homepage feed and `/my-posts` all still list finished
+conferences and their posts, and `/conference/:slug` and `/post/:id` still
+render. A post is a record of a trip that happened; a dead link is worse than a
+clearly-labelled finished one, and the pages that would have had to be filtered
+are exactly the ones a search engine has already indexed. `listConferences()` —
+the create-post `<option>` list — is the one query that filters, because it is
+the one place a conference is *chosen* rather than read.
+
+**Delete survives archiving; edit does not.** This asymmetry is the design, not
+an oversight. Archiving stops a stale offer being *presented* as a live one, and
+an edit is how a post stays presented — so it closes with the conference.
+Clearing away the post you left behind is the opposite of presenting it, so it
+stays available forever. `requireEditablePost()` in `src/lib/guards.ts` is that
+distinction made structural: the edit pair asks for it, the delete pair keeps the
+plain `requireOwnedPost()`. Writing it as a guard rather than an `if` in each
+handler is what stops the form and its submit drifting apart, which is the same
+reason `requireOwnedPost()` exists.
+
+**Every refusal is checked against the database, not the form.** The picker
+omits finished conferences, but `handleCreatePost` re-reads the conference's
+`stop_time` by id anyway (`getConferenceStopTime()`), because the id arrives in a
+form body and a form body is never trusted — and because a conference can finish
+between the page load and the submit, which a filtered `<option>` list cannot
+cover. `handleMessageSend` checks the same way: `getPostAuthorContact()` was
+widened to select `c.stop_time` on the same row the address comes from, so the
+two facts cannot describe different posts. Creating a *new* conference that has
+already finished is refused too — the row would be archived the instant it
+existed, holding a slug nobody could ever post against.
+
+**The pages drop the actions rather than offering and refusing them.** The post
+page swaps the inquiry form for a closed notice, drops the author's Edit button
+and keeps Delete; `/my-posts` shows "Archived" where Edit would be;
+`/conference/:slug` states the notice and replaces "Post for this conference"
+with a link to `/conferences`. Nothing on a rendered page points at a guard that
+would 403.
+
+**The test fixtures had to stop using literal dates.** Roughly a dozen fixture
+conferences were seeded at `2026-03-01`, which was in the past by the time this
+landed — so every one of them would have been archived and half the suite would
+have failed for a reason unrelated to what it tests. `dateFromNow()`, `UPCOMING`
+and `FINISHED` in `test/helpers/seed.ts` replace them. A fixture whose behaviour
+depends on whether the conference is over now says so relative to now, rather
+than passing until a date goes by and then failing mysteriously.
+`test/archive.test.ts` (16 tests) covers the cutoff's boundary, all three
+closures at the request level, the delete asymmetry, and what each page says.
+
+## The curated-list renames — migration 0005
+
+Two label changes, in one new migration file rather than as edits to 0002 and
+0003, for the reason those files record: an applied migration never runs again.
+
+- **`mathematics` → "Mathematics & Statistics".** Name only. The slug addresses
+  `/subject/:slug` and every `conference_tags` row, and nothing about a display
+  name requires moving it.
+- **`airport-transfer` → `rideshare` / "Rideshare/Taxi".** Slug *and* name, using
+  the same insert-repoint-delete sequence 0002 used for the subject slugs. The
+  narrower option is that only the name had to change — but the slug is the
+  address of `/search?share=`, and leaving `airport-transfer` as the address of a
+  type called Rideshare/Taxi is exactly the drift this project has already paid
+  for once. `UPDATE OR REPLACE` on `post_share_types` handles the one collision
+  the rename can hit, a post somehow carrying both slugs.
+
+Existing `?share=airport-transfer` links stop matching. That was accepted: the
+filter returns an empty result rather than an error, and the alternative was a
+permanent lie in the URL space.
+
+## Copy changes
+
+- **The create form's email is now displayed text**, not a readonly `<input>`,
+  with a note that inquiries go there and that inquirers do not get the address
+  until the author replies. Nothing ever read `email` off that form —
+  `handleCreatePost` takes the address from the session — so the box was only
+  ever inviting people to edit a field that does not exist. `.field-value` in
+  `style.css` is the new class; the Eleventy placeholder matches its shape so the
+  step does not reflow when HTMX swaps.
+- **A pointer to How It Works** sits between the Description label and its box.
+- **The featured-conference empty state** is now an invitation to write in rather
+  than an apology, with the address from `getConfig().adminEmail`.
+- **How It Works**: rideshare/taxi in the opening list; "Your field and
+  institution" dropped from the what-to-include list; a gender-preferences bullet
+  added; examples 1 and 2 rewritten to model stating a gender preference (or
+  explicitly not having one).
+- **About, Safety, Terms, Privacy**: every place that described the `.edu` gate as
+  restricting *access* now says it gates account creation and account-based
+  features, and states that public content is readable by anyone. That was the
+  substance of the round — the old wording implied the site was closed to
+  non-`.edu` readers, which it never has been.

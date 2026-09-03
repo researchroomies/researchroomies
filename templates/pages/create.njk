@@ -86,6 +86,7 @@ description: Post a request to share a hotel room, rental car, or other conferen
 
           <div class="field">
             <label for="description">Description</label>
+            <p class="field-hint">Before writing your description, we recommend reading our <a href="/how-it-works#what-to-include">How It Works</a> page, especially the section on what to include.</p>
             <textarea class="input" id="description" name="description" rows="6" placeholder="Dates, rough cost, whether you've already booked, anything about how you travel." required></textarea>
             <p class="form-disclaimer">Please make sure you are only posting information that you are comfortable making publicly available. Before arranging anything with another user, read our <a href="/safety" target="_blank">Safety &amp; Scam Awareness Guide</a>.</p>
           </div>
@@ -95,9 +96,12 @@ description: Post a request to share a hotel room, rental car, or other conferen
       <div class="form-step">
         <h6>3 &middot; Confirm</h6>
         <div class="form-stack">
+          {# Swapped outerHTML for the signed-in address as displayed text —
+             nothing posts this field, so it is never a control. The placeholder
+             matches that shape so the step does not reflow on load. #}
           <div id="auth-email-container" class="field" hx-get="/api/components/create-form-auth" hx-trigger="load" hx-swap="outerHTML">
-            <label for="email">Email</label>
-            <input class="input" id="email" type="email" name="email" required placeholder="Checking authentication…" readonly />
+            <label>Email</label>
+            <p class="field-value">Checking authentication…</p>
           </div>
           <div class="cf-turnstile" data-sitekey="{{ turnstileSiteKey }}"></div>
           <div class="form-actions">

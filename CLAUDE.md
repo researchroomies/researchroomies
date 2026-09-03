@@ -23,7 +23,7 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
   - `auth.ts` – magic link login/logout/session
   - `flags.ts` – post reporting
 - `src/db/` – every SQL statement, by table: `types` (every row shape), `posts`, `conferences`, `tags`, `share-types`, `positions`, `users`, `moderation`
-- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`, `share-types` (the picker/badge/option markup), `positions` (the author fields, their validation and the byline)
+- `src/lib/` – `config` (all deployment literals), `response` (every HTML response), `guards` (every session and ownership check), `shell.mjs` (the page chrome), `auth` (HMAC tokens), `session`, `turnstile`, `html`, `params`, `router`, `mailgun`, `share-types` (the picker/badge/option markup), `positions` (the author fields, their validation and the byline), `archive` (when a conference is over and what that closes)
 - `templates/style/style.css` – the only stylesheet: Classical tokens, then the
   system's component classes, then the application layer. No framework, no build
   step. See the styling section of AGENTS.md before touching it.
@@ -51,13 +51,15 @@ comfortably under 40,000 — that's what broke last time.
 
 ---
 
-## Current State — updated 2026-08-18
+## Current State — updated 2026-09-03
 
 Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **All six refactor tasks have landed** (see `docs/refactor/`, now closed).
 
-Suite is **495 tests across 16 files** (373 across 12 at the close of the
-refactor; share types, the all-conferences index, the redesign and the author
-fields added the rest), up from 21 across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Conference archiving and the 2026-09-03 copy round have landed (`updates.md` at the repo root; narrative in [`docs/history.md`](docs/history.md)). Migration `0005` is **not yet applied to production** — run `wrangler d1 migrations apply` before or with the next deploy, or the site will serve the old subject and share-type labels.
+
+Suite is **527 tests across 18 files** (373 across 12 at the close of the
+refactor; share types, the all-conferences index, the redesign, the author
+fields and archiving added the rest), up from 21 across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
 ### Feedback round 1 — all closed
 
@@ -114,6 +116,7 @@ held, was decided and turned on 2026-08-23 — see Architecture Notes below and
 - **One page shell: `renderShell()` in `src/lib/shell.mjs`.** It is the only definition of the doctype, `<head>`, nav and footer. `renderFullPage()` calls it for Worker pages; `scripts/gen-layout.mjs` calls it during `npm run build` to *generate* `templates/layouts/base.njk` for Eleventy. Edit the chrome there and nowhere else — `base.njk` carries a `{# GENERATED FILE #}` banner and `test/shell.test.ts` renders both sides and diffs them byte for byte, so a hand-edited layout or a stale committed one fails the suite instead of drifting quietly.
 - **One response path: `src/lib/response.ts`.** Never hand-build `new Response(html, { headers })`. `pageResponse()` for Worker pages, `fragmentResponse()` for `/api/components/*`, and `notFoundPage()` / `forbiddenPage()` / `errorPage()` for failures. `opts.cache` is a closed union defaulting to `'private'`; `errorPage()` takes no argument so an exception message cannot reach the client. Bare-text 4xx/405s, redirects and the two JSON endpoints in `auth.ts` are still plain `new Response` on purpose — converting them would change the wire format, and their shapes are Task 2's subject.
 - **Routes live in `src/routes.ts`, not `index.ts`.** Add a `{ method, path, handler }` entry to `ROUTES`, without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`. `test/assets.test.ts` reads `ROUTES` and fails if you forget either.
+- **Test fixtures that touch conference dates use `dateFromNow()` / `UPCOMING` / `FINISHED` from `test/helpers/seed.ts`, never literal dates.** Archiving compares against the wall clock, so a fixture pinned to a literal date is a test that passes until that date goes by and then fails for a reason nobody will connect to it. That is exactly what happened to the whole `2026-03-01` generation of fixtures when archiving landed.
 - **The database is defined by `migrations/`, and old migrations are immutable.**
   Adding a subject, renaming a share type, or changing any table means a new
   numbered file — never an edit to one already applied, because an applied
@@ -128,6 +131,8 @@ held, was decided and turned on 2026-08-23 — see Architecture Notes below and
   page that renders badges should use `listShareTypesForPosts()` (one query per
   page), not `listShareTypesForPost()` in a loop.
 - **One route module per concern, and none imports another.** The handler goes in the `src/routes/` module that owns its concern; if two modules need the same thing it belongs in `src/lib/` or `src/db/`, never in a sibling and never in a shared `render.ts` — that grab bag is how `api.ts` reached 1,199 lines. Render helpers stay private to the module that uses them, which is why `/post/:id` and `/api/components/post/:id` share `post-detail.ts` rather than splitting across `posts.ts` and `components.ts`. `test/route-modules.test.ts` fails the build on a cross-module import, on a module over 320 lines, or on a handler exported but not registered.
+- **Archiving is derived, never stored.** A conference is archived when its last day has passed, and `src/lib/archive.ts` is the whole feature: `isArchived()` / `isArchivedStopTime()` against `conferences.stop_time`, plus a 24-hour grace period because `stop_time` is midnight UTC at the *start* of the last day. There is no `is_archived` column and no sweep job on purpose — a stored flag is a second answer that can disagree with the dates. Archiving closes exactly three things: the create-post picker (`listConferences()` is the one query that filters, by `cutoff`), inquiries (`handleMessageSend`), and edits (`requireEditablePost()`). It hides nothing from any listing, and **delete deliberately still works** — see the module doc and [`docs/history.md`](docs/history.md).
+- **Every archived refusal is checked against the database, not the form.** The picker omits finished conferences and `handleCreatePost` re-reads `getConferenceStopTime()` anyway; `getPostAuthorContact()` selects the conference's `stop_time` on the same row as the address. A filtered `<option>` list is a courtesy, never the check.
 - **Deployment literals live in `src/lib/config.ts`.** `getConfig(env, request?)` is the only place an origin, TTL, sitekey, Mailgun setting or admin address is defined. The session TTL in particular has exactly one definition feeding both the cookie `Max-Age` and the token `exp` — they were two independent constants agreeing by coincidence, and divergence is a silent logout.
 - **One data path: `src/db/`.** Handlers never touch `env.DB`; they call a named function from the module that owns the table, and every row shape is defined once in `src/db/types.ts`. `test/db-access.test.ts` fails the build on a `DB.prepare` outside `src/db/`, on any `as unknown as` in `src/`, or on a row shape declared next to a query. Type reads with D1's `.first<T>()` / `.all<T>()` generics — the casts they replace are what let `getAllConferences()` claim to return full conferences from a `SELECT id, name`.
 - **Route ids:** parse with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`. `parseInt("12abc", 10)` is `12` and passes `Number.isFinite()`, which silently turns a malformed URL into a lookup of a different row.

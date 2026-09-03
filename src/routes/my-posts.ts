@@ -6,6 +6,7 @@ import { listPostsForUser } from "../db/posts";
 import { listShareTypesForPosts } from "../db/share-types";
 import { shareTypeBadges } from "../lib/share-types";
 import { authorLine } from "../lib/positions";
+import { isArchived } from "../lib/archive";
 
 /**
  * `GET /my-posts` — the author's own listing.
@@ -43,6 +44,10 @@ export async function handleMyPosts(
     } else {
       postsHtml = `<ul class="my-posts-list">`;
       for (const post of results) {
+        // Edit closes with the conference and delete does not — see
+        // src/lib/archive.ts. Dropping the link rather than letting it 403 keeps
+        // this list from offering an action the guard behind it refuses.
+        const archived = isArchived(post);
         postsHtml += `
           <li class="my-post-item">
             <div>
@@ -56,7 +61,7 @@ export async function handleMyPosts(
               </p>
             </div>
             <div class="my-post-actions">
-              <a href="/post/${post.id}/edit">Edit</a>
+              ${archived ? `<span class="post-archived">Archived</span>` : `<a href="/post/${post.id}/edit">Edit</a>`}
               <a href="/post/${post.id}/delete" class="danger-link">Delete</a>
             </div>
           </li>
@@ -65,9 +70,9 @@ export async function handleMyPosts(
       postsHtml += `</ul>`;
     }
 
-    const upcoming = results.filter(
-      (post) => post.stop_time * 1000 >= Date.now(),
-    ).length;
+    // The same comparison archiving uses, so this count and the Edit links
+    // below can never disagree about which posts are still live.
+    const upcoming = results.filter((post) => !isArchived(post)).length;
 
     const content = `
       <div class="with-aside">
@@ -88,7 +93,7 @@ export async function handleMyPosts(
           </div>
           <div class="aside-section">
             <h6>Editing a post</h6>
-            <p class="aside-note">You can change a post's title, description and what it offers to share at any time. Deleting one is permanent.</p>
+            <p class="aside-note">You can change a post's title, description and what it offers to share until its conference has finished; after that the post is archived and can only be deleted. Deleting one is permanent.</p>
           </div>
         </aside>
       </div>

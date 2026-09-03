@@ -18,6 +18,7 @@ import { getPostWithConference } from "../db/posts";
 import { listShareTypesForPost } from "../db/share-types";
 import { shareTypeBadges } from "../lib/share-types";
 import { positionLabel } from "../lib/positions";
+import { ARCHIVED_NOTICE, isArchived } from "../lib/archive";
 import type { PostDetail, ShareType } from "../db/types";
 
 /**
@@ -61,7 +62,23 @@ function renderFacts(post: PostDetail): string {
 }
 
 /** The inquiry box in the aside: the form for a reader, a prompt for a stranger. */
-function renderInquiry(env: Env, post: PostDetail, isLoggedIn: boolean): string {
+function renderInquiry(
+  env: Env,
+  post: PostDetail,
+  isLoggedIn: boolean,
+  archived: boolean,
+): string {
+  // Closed before the sign-in prompt, because sending someone to /login for a
+  // form they will not get either way is the worse of the two dead ends.
+  if (archived) {
+    return `
+          <div class="aside-box">
+            <h4>Inquiries are closed</h4>
+            <p class="aside-note">${escapeHtml(ARCHIVED_NOTICE)}</p>
+            <a href="/conferences" class="btn btn-secondary btn-block">Find an upcoming conference</a>
+          </div>`;
+  }
+
   if (!isLoggedIn) {
     return `
           <div class="aside-box">
@@ -93,6 +110,8 @@ function renderPostDetail(
   shareTypes: ShareType[],
   viewer: { isLoggedIn: boolean; isAuthor: boolean; sent: boolean },
 ): string {
+  const archived = isArchived(post);
+
   // Both variants point at the report route; only the label and the target
   // differ. Anonymous, the route 302s to /login and the magic-link callback
   // lands on the homepage rather than back here, so a same-tab click costs the
@@ -103,10 +122,17 @@ function renderPostDetail(
     ? `<a href="/post/${post.id}/report" class="report-link">Report this post</a>`
     : `<a href="/post/${post.id}/report" class="report-link" target="_blank">Log in to report this post</a>`;
 
+  // Delete survives archiving and edit does not — see src/lib/archive.ts. The
+  // button is dropped rather than shown and refused, so the page never offers an
+  // action the guard behind it would 403.
+  const editAction = archived
+    ? ""
+    : `<a href="/post/${post.id}/edit" class="btn btn-secondary">Edit post</a>`;
+
   const ownerActions = viewer.isAuthor
     ? `
         <div class="post-actions">
-          <a href="/post/${post.id}/edit" class="btn btn-secondary">Edit post</a>
+          ${editAction}
           <a href="/post/${post.id}/delete" class="btn btn-ghost danger-link">Delete</a>
           <span class="post-actions-note">This is your post. <a href="/my-posts">See all your posts</a></span>
         </div>
@@ -121,11 +147,19 @@ function renderPostDetail(
     ? `<p class="form-notice">Your inquiry was sent. The post author has your email address and can reply directly.</p>`
     : "";
 
+  // Stated at the top of the article as well as in the aside: a reader arriving
+  // from a search result needs to know the trip is over before they read the
+  // offer, not after they go looking for the button that is missing.
+  const archivedNotice = archived
+    ? `<p class="form-notice">${escapeHtml(ARCHIVED_NOTICE)}</p>`
+    : "";
+
   return `
       <p class="breadcrumb"><a href="/conferences">Conferences</a> &nbsp;/&nbsp; <a href="/conference/${encodeURIComponent(post.conference_slug)}">${escapeHtml(post.conference_name)}</a> &nbsp;/&nbsp; Post</p>
       <div class="with-aside">
         <article class="post-body">
           <h1 class="post-title">${escapeHtml(post.title)}</h1>
+          ${archivedNotice}
           ${shareTypeBadges(shareTypes)}
           ${renderFacts(post)}
           <p>${escapeHtml(post.description)}</p>
@@ -133,7 +167,7 @@ function renderPostDetail(
         </article>
         <aside class="aside-stack">
           ${sentNotice}
-          ${renderInquiry(env, post, viewer.isLoggedIn)}
+          ${renderInquiry(env, post, viewer.isLoggedIn, archived)}
           <div class="aside-section">
             <p class="aside-note">We don't verify or endorse users. Verify institutional affiliation and read the <a href="/safety">Safety &amp; Scam Awareness Guide</a> before you arrange anything.</p>
           </div>

@@ -151,7 +151,13 @@ describe('grouping', () => {
 
 		const groups = parseGroups((await page()).html);
 
-		expect(groups.map((group) => group.heading)).toEqual(['Biology', 'Mathematics', 'Physics']);
+		// The heading is escaped markup, which is why Mathematics arrives with an
+		// entity in it — the subject was renamed to "Mathematics & Statistics".
+		expect(groups.map((group) => group.heading)).toEqual([
+			'Biology',
+			'Mathematics &amp; Statistics',
+			'Physics',
+		]);
 	});
 
 	it('orders conferences within a group by start date', async () => {
