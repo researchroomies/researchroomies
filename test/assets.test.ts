@@ -165,3 +165,37 @@ describe('run_worker_first covers every route', () => {
 		).toBe(true);
 	});
 });
+
+/**
+ * The create form's new-conference fields.
+ *
+ * They used to be revealed by an `onchange` on the conference select, which is
+ * a bug the moment the options fragment comes back with no live conferences:
+ * "Create New Conference" is then the only option and is selected without any
+ * change event ever firing, so the fields stayed hidden and every submission
+ * died on "Missing required fields for new conference". The fix drives their
+ * visibility off the select's *value*, re-synced after each htmx swap, so both
+ * hooks are guarded here.
+ */
+describe('create form reveals the new-conference fields', () => {
+	function createPageHtml(): string {
+		const publicDir = requirePublicDir();
+		const page = join(publicDir, 'create', 'index.html');
+		if (!existsSync(page)) {
+			throw new Error(`public/create/index.html is missing at ${page}. Run \`npm run build\`.`);
+		}
+		return readFileSync(page, 'utf8');
+	}
+
+	it('syncs on change and after the options swap', () => {
+		const html = createPageHtml();
+		expect(html).toContain('onchange="syncNewConferenceFields()"');
+		expect(html).toContain('hx-on::after-swap="syncNewConferenceFields()"');
+	});
+
+	it('reads the select value rather than only reacting to an event', () => {
+		const html = createPageHtml();
+		expect(html).toMatch(/function syncNewConferenceFields\(\)/);
+		expect(html).toMatch(/fields\.hidden = select\.value !== 'new'/);
+	});
+});

@@ -19,9 +19,17 @@ description: Post a request to share a hotel room, rental car, or other conferen
         <div class="form-stack">
           <div class="field">
             <label for="conference">Conference</label>
+            {# The new-conference fields follow the select's *value*, not just
+               its change event. When the options fragment comes back with no
+               live conferences, "Create New Conference" is the only option and
+               so is selected without any change event ever firing — the fields
+               stayed hidden and the post failed with "Missing required fields
+               for new conference". syncNewConferenceFields() runs on change and
+               again after every htmx swap into the select. #}
             <select class="input" id="conference" name="conference_id"
                     hx-get="/api/components/conference-options" hx-trigger="load" hx-swap="innerHTML"
-                    onchange="document.getElementById('new-conference-fields').hidden = this.value !== 'new';">
+                    hx-on::after-swap="syncNewConferenceFields()"
+                    onchange="syncNewConferenceFields()">
               <option value="new">Create New Conference</option>
             </select>
             <p class="field-hint">Can't find yours? Pick "Create New Conference" — but check the list first so we don't end up with two.</p>
@@ -66,6 +74,16 @@ description: Post a request to share a hotel room, rental car, or other conferen
           </div>
         </div>
       </div>
+
+      <script>
+        function syncNewConferenceFields() {
+          var select = document.getElementById('conference');
+          var fields = document.getElementById('new-conference-fields');
+          if (!select || !fields) return;
+          fields.hidden = select.value !== 'new';
+        }
+        syncNewConferenceFields();
+      </script>
 
       <div class="form-step">
         <h6>2 &middot; Your post</h6>
