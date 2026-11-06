@@ -16,10 +16,12 @@ import {
 import { parseRouteId } from "../lib/params";
 import { getPostWithConference } from "../db/posts";
 import { listShareTypesForPost } from "../db/share-types";
+import { hasSentMessage } from "../db/messages";
 import { shareTypeBadges } from "../lib/share-types";
 import { positionLabel } from "../lib/positions";
 import { ARCHIVED_NOTICE, isArchived } from "../lib/archive";
 import type { PostDetail, ShareType } from "../db/types";
+import type { SessionPayload } from "../lib/auth";
 
 /**
  * Reading a post: the `/post/:id` page and its HTMX fragment twin.
@@ -177,6 +179,23 @@ function renderPostDetail(
 }
 
 /**
+ * Whether to show "your inquiry was sent".
+ *
+ * `?sent=1` is where the send handler redirects, but the parameter only asks the
+ * question. The answer comes from `message`, so a crafted or bookmarked link
+ * shows nothing to a viewer who never sent an inquiry about this post.
+ */
+async function inquirySent(
+  env: Env,
+  request: Request,
+  user: SessionPayload | null,
+  postId: number,
+): Promise<boolean> {
+  if (!user || new URL(request.url).searchParams.get("sent") !== "1") return false;
+  return await hasSentMessage(env, postId, user.email);
+}
+
+/**
  * GET /post/:id — server-rendered.
  *
  * This used to serve a static shell whose inline script re-parsed the id out of
@@ -212,7 +231,7 @@ export async function handlePostPage(
     const content = renderPostDetail(env, post, shareTypes, {
       isLoggedIn: user !== null,
       isAuthor: user !== null && sessionUserId(user) === post.user_id,
-      sent: url.searchParams.get("sent") === "1",
+      sent: await inquirySent(env, request, user, post.id),
     });
 
     // Varies by viewer (author actions, logged-out prompt) — never shared, which
@@ -266,7 +285,7 @@ export async function handleComponentPost(
     const html = renderPostDetail(env, post, shareTypes, {
       isLoggedIn: user !== null,
       isAuthor: user !== null && sessionUserId(user) === post.user_id,
-      sent: new URL(request.url).searchParams.get("sent") === "1",
+      sent: await inquirySent(env, request, user, post.id),
     });
 
     // Varies by viewer (author actions, logged-out prompt) — never shared.

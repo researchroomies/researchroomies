@@ -271,6 +271,15 @@ export interface NewFlag {
 	timestamp: number;
 }
 
+/**
+ * Where an inquiry's email has got to.
+ *
+ * 'pending' is written before the send and settled afterwards. A row left at
+ * 'pending' means the Worker stopped between the two, most likely after Mailgun
+ * accepted, so it is treated as sent: a retry does not send again.
+ */
+export type MessageStatus = 'pending' | 'sent' | 'failed';
+
 export interface NewMessage {
 	postId: number;
 	senderEmail: string;

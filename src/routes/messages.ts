@@ -2,17 +2,39 @@ import { sendInquiryEmail } from "../lib/mailgun";
 import { requireUser } from "../lib/guards";
 import { verifyTurnstile } from "../lib/turnstile";
 import { parseRouteId } from "../lib/params";
+import { errorPage, pageResponse } from "../lib/response";
 import { getPostAuthorContact } from "../db/posts";
-import { recordMessage } from "../db/moderation";
+import { hasRecentMessage, settleMessage, startMessage } from "../db/messages";
 import { ARCHIVED_NOTICE, isArchived } from "../lib/archive";
 
 /**
- * `POST /api/message/send` — the inquiry form on a post page.
+ * How far back an identical inquiry counts as the same one.
  *
- * KNOWN LIMIT: the `message` row is written only after Mailgun accepts, so a
- * Mailgun outage returns 500 and records nothing. That is deliberate for now —
- * a row here means "this was actually sent" — but it does mean the audit trail
- * has the same availability as the mail provider.
+ * Long enough to cover someone retrying after an error page or a dropped
+ * connection. Short enough that deliberately re-sending the same words later,
+ * after getting no reply, still goes through.
+ */
+export const INQUIRY_DEDUPE_SECONDS = 10 * 60;
+
+/**
+ * `POST /api/message/send`, the inquiry form on a post page.
+ *
+ * The order is what this handler is about, so it is spelled out:
+ *
+ *   1. Record the inquiry as 'pending'. If D1 fails here nothing has been sent,
+ *      so an error page with "try again" is honest.
+ *   2. Send it.
+ *   3. Settle the row. Once Mailgun has accepted the email the user is told it
+ *      was sent, whatever happens next: a failure to settle is logged and the
+ *      row stays 'pending', which `hasRecentMessage()` already treats as sent.
+ *      The one thing this must never do is show an error for an email that has
+ *      gone out, because that is what made people retry and the author receive
+ *      it twice.
+ *
+ * Before step 1, an identical inquiry from the same sender in the last
+ * `INQUIRY_DEDUPE_SECONDS` short-circuits to the success page without sending.
+ * That catches the retry after a lost response, and a 'pending' row left by a
+ * Worker that died mid-send.
  */
 export async function handleMessageSend(
   request: Request,
@@ -61,7 +83,29 @@ export async function handleMessageSend(
       return new Response(ARCHIVED_NOTICE, { status: 403 });
     }
 
-    const success = await sendInquiryEmail(
+    const sentUrl = `${new URL(request.url).origin}/post/${postId}?sent=1`;
+    const now = Math.floor(Date.now() / 1000);
+
+    if (
+      await hasRecentMessage(env, {
+        postId,
+        senderEmail: user.email,
+        content,
+        since: now - INQUIRY_DEDUPE_SECONDS,
+      })
+    ) {
+      return Response.redirect(sentUrl, 303);
+    }
+
+    const messageId = await startMessage(env, {
+      postId,
+      senderEmail: user.email,
+      recipientEmail: recipient.email,
+      content,
+      timestamp: now,
+    });
+
+    const sent = await sendInquiryEmail(
       recipient.email,
       user.email,
       recipient.title,
@@ -69,25 +113,47 @@ export async function handleMessageSend(
       env,
     );
 
-    if (!success) {
-      throw new Error("Failed to send email");
+    if (!sent) {
+      await settleQuietly(env, messageId, "failed");
+      return notSentPage(postId);
     }
 
-    // Keep a record of what was sent through the platform.
-    await recordMessage(env, {
-      postId,
-      senderEmail: user.email,
-      recipientEmail: recipient.email,
-      content,
-      timestamp: Math.floor(Date.now() / 1000),
-    });
-
-    return Response.redirect(
-      `${new URL(request.url).origin}/post/${postId}?sent=1`,
-      303,
-    );
+    await settleQuietly(env, messageId, "sent");
+    return Response.redirect(sentUrl, 303);
   } catch (error) {
+    // Only reachable before the send: everything after it is caught by
+    // settleQuietly(). So this page may truthfully say nothing went out.
     console.error("Error sending message:", error);
-    return new Response("Internal Server Error", { status: 500 });
+    return errorPage();
   }
+}
+
+/** Settles the row, and never throws: the outcome the user sees is already decided. */
+async function settleQuietly(
+  env: Env,
+  id: number,
+  status: "sent" | "failed",
+): Promise<void> {
+  try {
+    await settleMessage(env, id, status);
+  } catch (error) {
+    console.error(`Failed to mark message ${id} as ${status}:`, error);
+  }
+}
+
+/**
+ * The mail provider refused or could not be reached. 502, as `handleAuthStart`
+ * answers the same failure, and a page rather than bare text because this is a
+ * plain form POST that lands in the address bar.
+ */
+function notSentPage(postId: number): Response {
+  return pageResponse(
+    "Inquiry not sent",
+    `<div class="site-page">
+        <h1>Your inquiry was not sent</h1>
+        <p>We could not deliver your message just now. Nothing was sent, so it is safe to try again in a few minutes.</p>
+        <p><a href="/post/${postId}" class="btn btn-secondary">Back to post</a></p>
+      </div>`,
+    { status: 502, cache: "none" },
+  );
 }

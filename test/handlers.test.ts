@@ -10,7 +10,8 @@ import { handlePostPage } from '../src/routes/post-detail';
 import { deletePostAndFlags, getPost, getPostWithConference } from '../src/db/posts';
 import { getConferenceBySlug } from '../src/db/conferences';
 import { listTagsForConference } from '../src/db/tags';
-import { recordFlag, recordMessage } from '../src/db/moderation';
+import { recordFlag } from '../src/db/moderation';
+import { startMessage } from '../src/db/messages';
 import { setShareTypesForPost } from '../src/db/share-types';
 import {
 	expectTurnstile,
@@ -492,7 +493,7 @@ describe('handleDeletePostSubmit', () => {
 
 	it('keeps the record of inquiries that were already sent', async () => {
 		const { postId, ownerCookie } = await ownedPost();
-		await recordMessage(testEnv, {
+		await startMessage(testEnv, {
 			postId,
 			senderEmail: 'asker@university.edu',
 			recipientEmail: 'prof@university.edu',

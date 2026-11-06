@@ -82,6 +82,7 @@ describe('A. SQL is reached only through src/db/', () => {
 		const sql = DB_MODULES.filter((file) => /DB\.prepare/.test(code(file)));
 		expect(sql.sort()).toEqual([
 			'src/db/conferences.ts',
+			'src/db/messages.ts',
 			'src/db/moderation.ts',
 			'src/db/positions.ts',
 			'src/db/posts.ts',
