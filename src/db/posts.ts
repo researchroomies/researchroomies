@@ -329,15 +329,29 @@ export async function updatePost(env: Env, id: number, userId: number, fields: P
 }
 
 /**
- * Deletes a post together with the flags that reference it.
+ * Deletes a post together with every row that holds a foreign key to it.
+ *
+ * Both `flags` and `post_share_types` reference `posts(id)` without
+ * `ON DELETE CASCADE`, and D1 enforces foreign keys, so the post row can only
+ * go once those rows are gone. Leaving one out does not leave an orphan; it
+ * fails the whole batch with `SQLITE_CONSTRAINT`. Until 2026-11-06 the share
+ * types were missing here, which made every post offering one undeletable. A
+ * new table referencing `posts` needs its own line here.
  *
  * `message` rows are deliberately left behind: they are the record of inquiries
- * actually sent, and outlive the post they were about. As in `updatePost`, the
- * `AND user_id = ?` is defence in depth behind `requireOwnedPost()`.
+ * actually sent, and outlive the post they were about. `message` declares no
+ * foreign key, which is why that can work.
+ *
+ * As in `updatePost`, `user_id` is defence in depth behind `requireOwnedPost()`,
+ * and it scopes every statement, not just the last. Scoping only the post
+ * delete would mean a caller who somehow got past the guard could not remove
+ * someone else's post but could still strip its reports and share types.
  */
 export async function deletePostAndFlags(env: Env, id: number, userId: number): Promise<void> {
+	const owned = `post_id IN (SELECT id FROM posts WHERE id = ? AND user_id = ?)`;
 	await env.DB.batch([
-		env.DB.prepare(`DELETE FROM flags WHERE post_id = ?`).bind(id),
+		env.DB.prepare(`DELETE FROM flags WHERE ${owned}`).bind(id, userId),
+		env.DB.prepare(`DELETE FROM post_share_types WHERE ${owned}`).bind(id, userId),
 		env.DB.prepare(`DELETE FROM posts WHERE id = ? AND user_id = ?`).bind(id, userId),
 	]);
 }

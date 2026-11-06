@@ -872,3 +872,33 @@ permanent lie in the URL space.
   features, and states that public content is readable by anyone. That was the
   substance of the round — the old wording implied the site was closed to
   non-`.edu` readers, which it never has been.
+
+## Posts with share types could not be deleted — fixed 2026-11-06
+
+Found during a review of the app's implicit state machines, and not from a user
+report.
+
+**The bug.** `deletePostAndFlags()` batched `DELETE FROM flags` and then
+`DELETE FROM posts`. `post_share_types` (migration 0003) also references
+`posts(id)`, with no `ON DELETE CASCADE`, and D1 enforces foreign keys. So for
+any post that offered a share type, the post delete hit `SQLITE_CONSTRAINT`, the
+whole batch rolled back, and the handler returned `errorPage()`: a 500, with the
+post still in place. Since 0003 landed, the create and edit forms have both
+offered the picker, so this covered most posts written since then.
+
+**Why the suite missed it.** The delete tests share the `ownedPost()` fixture,
+which never seeds share types. It was the one state the delete path could not
+handle, and no test ever put a post in it.
+
+**The fix.** The batch now deletes `post_share_types` rows as well. Every
+statement is scoped through
+`post_id IN (SELECT id FROM posts WHERE id = ? AND user_id = ?)`. Before this,
+only the post delete carried `user_id`, which meant a caller who got past
+`requireOwnedPost()` could not remove another user's post but could still strip
+its flags. Two tests in `test/handlers.test.ts`: a post with share types deletes
+cleanly and takes its rows with it, and a wrong `user_id` at the db layer
+removes nothing.
+
+**The rule going forward**, recorded on the function: any new table with a
+foreign key to `posts` needs a line in that batch. Leaving one out does not leave
+an orphan. It makes the post impossible to delete.

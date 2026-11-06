@@ -57,7 +57,9 @@ Eric Burkholder's first feedback round is fully implemented and the follow-up re
 
 Conference archiving and the 2026-09-03 copy round have landed (`updates.md` at the repo root; narrative in [`docs/history.md`](docs/history.md)). Migration `0005` is **not yet applied to production** — run `wrangler d1 migrations apply` before or with the next deploy, or the site will serve the old subject and share-type labels.
 
-Suite is **527 tests across 18 files** (373 across 12 at the close of the
+Posts that offer a share type could not be deleted until 2026-11-06 (FK violation, every such delete returned a 500); fixed, see [`docs/history.md`](docs/history.md).
+
+Suite is **531 tests across 18 files** (373 across 12 at the close of the
 refactor; share types, the all-conferences index, the redesign, the author
 fields and archiving added the rest), up from 21 across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 

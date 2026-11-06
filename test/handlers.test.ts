@@ -7,10 +7,11 @@ import {
 import { handleCreatePost } from '../src/routes/create-post';
 import { handleMyPosts } from '../src/routes/my-posts';
 import { handlePostPage } from '../src/routes/post-detail';
-import { getPost, getPostWithConference } from '../src/db/posts';
+import { deletePostAndFlags, getPost, getPostWithConference } from '../src/db/posts';
 import { getConferenceBySlug } from '../src/db/conferences';
 import { listTagsForConference } from '../src/db/tags';
 import { recordFlag, recordMessage } from '../src/db/moderation';
+import { setShareTypesForPost } from '../src/db/share-types';
 import {
 	expectTurnstile,
 	resetDatabase,
@@ -468,6 +469,27 @@ describe('handleDeletePostSubmit', () => {
 		expect(flags?.n).toBe(0);
 	});
 
+	// post_share_types references posts(id) with no cascade and D1 enforces
+	// foreign keys, so forgetting these rows does not orphan them — it fails the
+	// delete outright. The fixture above has no share types, which is how this
+	// went unnoticed: every post that offered one returned a 500 on delete.
+	it('deletes a post that offers share types, and its share-type rows', async () => {
+		const { postId, ownerCookie } = await ownedPost();
+		await setShareTypesForPost(testEnv, postId, ['lodging', 'carpool']);
+
+		const response = await handleDeletePostSubmit(
+			testRequest(`/post/${postId}/delete`, { method: 'POST', cookie: ownerCookie }),
+			testEnv,
+			ctx(),
+			{ id: String(postId) },
+		);
+
+		expect(response.status).toBe(303);
+		expect(await getPost(testEnv, postId)).toBeNull();
+		const rows = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM post_share_types').first<{ n: number }>();
+		expect(rows?.n).toBe(0);
+	});
+
 	it('keeps the record of inquiries that were already sent', async () => {
 		const { postId, ownerCookie } = await ownedPost();
 		await recordMessage(testEnv, {
@@ -502,6 +524,29 @@ describe('handleDeletePostSubmit', () => {
 
 		expect(response.status).toBe(403);
 		expect(await getPost(testEnv, postId)).not.toBeNull();
+	});
+
+	// Below the guard, at the db layer: every statement in the batch carries the
+	// user_id, so a wrong owner removes nothing — not the post, and not the
+	// reports or share types hanging off it either.
+	it('removes nothing at the db layer when the user_id is not the owner’s', async () => {
+		const { postId } = await ownedPost();
+		const stranger = await seedUser('third@university.edu');
+		await setShareTypesForPost(testEnv, postId, ['lodging']);
+		await recordFlag(testEnv, {
+			postId,
+			reason: 'Spam or advertising',
+			flaggedBy: 'reporter@university.edu',
+			timestamp: ts('2026-02-01'),
+		});
+
+		await deletePostAndFlags(testEnv, postId, stranger);
+
+		expect(await getPost(testEnv, postId)).not.toBeNull();
+		const flags = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM flags').first<{ n: number }>();
+		const shares = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM post_share_types').first<{ n: number }>();
+		expect(flags?.n).toBe(1);
+		expect(shares?.n).toBe(1);
 	});
 });
 
