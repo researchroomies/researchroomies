@@ -36,10 +36,9 @@ ResearchRoomies is an academic conference travel cost–sharing platform. Academ
 **The detailed "why" behind every feature and refactor task below — D1
 migrations, share types, the all-conferences index, the Classical redesign,
 position/institution, and all six refactor tasks — lives in
-[`docs/history.md`](docs/history.md).** It was moved out of this file on
-2026-08-23 because `CLAUDE.md` had grown to 67,684 characters, past the 40k
-limit Claude Code loads it under. What remains here is present-state reference
-material: current status, open decisions, backlog, and architecture notes.
+[`docs/history.md`](docs/history.md).** This file is present-state reference
+material only: current status, open decisions, backlog, and architecture notes. It is loaded
+into every session and has a 40,000-character limit.
 
 **Keeping it that way:** when a feature or refactor lands, write the detailed
 narrative — the reasoning, what was rejected and why, the verification steps —
@@ -47,7 +46,7 @@ into `docs/history.md`, not here. This file gets only the present-tense fact:
 one line in Current State, a row in a table, or a bullet in Backlog/Architecture
 Notes, with a link into `docs/history.md` if a reader might want the full story.
 Run `wc -c CLAUDE.md` before committing a write-up to this file and keep it
-comfortably under 40,000 — that's what broke last time.
+comfortably under 40,000.
 
 ---
 
@@ -55,43 +54,25 @@ comfortably under 40,000 — that's what broke last time.
 
 Eric Burkholder's first feedback round is fully implemented and the follow-up review of that work is closed out. **All six refactor tasks have landed** (see `docs/refactor/`, now closed).
 
-Conference archiving and the 2026-09-03 copy round have landed (`updates.md` at the repo root; narrative in [`docs/history.md`](docs/history.md)). Migration `0005` is **not yet applied to production** — run `wrangler d1 migrations apply` before or with the next deploy, or the site will serve the old subject and share-type labels.
+Conference archiving and the 2026-09-03 copy round have landed (narrative in [`docs/history.md`](docs/history.md)). Migration `0005` is **not yet applied to production** — run `wrangler d1 migrations apply` before or with the next deploy, or the site will serve the old subject and share-type labels.
 
 Posts that offer a share type could not be deleted until 2026-11-06 (FK violation, every such delete returned a 500); fixed, see [`docs/history.md`](docs/history.md).
 
-Suite is **531 tests across 18 files** (373 across 12 at the close of the
-refactor; share types, the all-conferences index, the redesign, the author
-fields and archiving added the rest), up from 21 across 3 before it. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
+Suite is **531 tests across 18 files**. `npm run build` and `tsc --noEmit` are clean. `npm run check` runs all three in the right order — build first, because the guard tests read `public/`.
 
-### Feedback round 1 — all closed
-
-| # | Item | Status |
-|---|---|---|
-| 1 | "My Posts" page | ✅ `GET /my-posts` |
-| 2 | Search | ✅ Now actually reachable and filtering |
-| 3 | Logout showed `{"ok":true}` | ✅ `HX-Redirect: /` |
-| 4 | City/State instead of Location | ✅ stored as `"City, State"` in `location_address` |
-| 5 | Duplicate-conference notice | ✅ plus real slug-collision handling |
-| 6 | Pre-submit privacy disclaimer | ✅ |
-| 7 | `.edu` email restriction | ✅ Enabled 2026-08-23 — `RESTRICT_EDU_EMAILS = "true"` |
-| 8 | About page bio rewrite | ✅ |
-| 9 | Conference list indentation | ✅ |
-| 10 | Conference name + location + dates | ✅ + subject tags |
-| — | Edit/delete own posts | ✅ `src/routes/posts.ts` |
+Feedback round 1 is closed; the item-by-item table is in [`docs/history.md`](docs/history.md).
 
 ---
 
 ## Open decisions
 
-*(None outstanding. The `.edu` restriction, the only entry this section ever
-held, was decided and turned on 2026-08-23 — see Architecture Notes below and
-[`docs/history.md`](docs/history.md).)*
+*(None outstanding.)*
 
 ---
 
 ## Backlog
 
-- **Handler-level error handling is the one structural theme the refactor left alone.** `src/` still has 24 `try {` blocks, roughly one per handler, each catching its own D1 failure and returning `errorPage()` or a fragment. Task 1 standardised what a failure renders and Task 2 removed the auth branches, but nothing collapsed the repetition itself. It was never in scope for any of the six tasks; noting it so the next reader knows it is a gap rather than an oversight.
+- **Handler-level error handling is the one structural theme the refactor left alone.** `src/` still has roughly one `try {` block per handler, each catching its own D1 failure and returning `errorPage()` or a fragment. Task 1 standardised what a failure renders and Task 2 removed the auth branches, but nothing collapsed the repetition itself. It was never in scope for any of the six tasks; noting it so the next reader knows it is a gap rather than an oversight.
 - **The custom 404 page is probably never served.** `not_found_handling = "404-page"` looks for `public/404.html`, but Eleventy emits `public/404/index.html`. Found while verifying Task 4; not yet confirmed against production.
 - **Worker pages are inconsistent about `description` / `canonicalUrl`.** `renderShell()` omits the meta and canonical tags when a handler passes nothing, which is the case for `/search`, `/my-posts` and the edit/delete/report pages. Task 4 fixed the shell and the nine static pages; this is the remaining half, and it is per-handler content rather than shell shape.
 - **`test/assets.test.ts` imports `node:fs` with no `@types/node` installed**, so editors show a squiggle on the import. Harmless — `tsconfig.json` excludes `test/` and vitest does not typecheck — but `npm i -D @types/node` clears it.
@@ -114,9 +95,9 @@ held, was decided and turned on 2026-08-23 — see Architecture Notes below and
 
 - **Asset routing precedence (the big footgun).** Cloudflare serves a matching static asset *before* invoking the Worker. Adding `templates/pages/foo.njk` will silently shadow a `GET /foo` Worker route — this is exactly how `/search` broke. Either don't create the template, or add the path to `run_worker_first` in `wrangler.toml`.
 - **Trailing slashes.** Worker routes are slashless and `Router.match()` is `$`-anchored. `src/index.ts` redirects `/foo/` → `/foo` with a 308, but *only* when the trimmed path is a registered route — Eleventy assets are genuinely directory-style, so `/about/` must keep falling through to `env.ASSETS.fetch()`. Register new routes without a trailing slash and this keeps working.
-- **Static vs. dynamic rendering:** pages in `templates/pages/` are built by Eleventy at deploy time; dynamic content is Worker-rendered or injected via HTMX. No page is on the static-shell-plus-fetch pattern any more; don't add one back. If a page has content worth indexing or link-previewing, render it in the Worker.
+- **Static vs. dynamic rendering:** pages in `templates/pages/` are built by Eleventy at deploy time; dynamic content is Worker-rendered or injected via HTMX. Don't build a static shell that fetches its own content. If a page has content worth indexing or link-previewing, render it in the Worker.
 - **One page shell: `renderShell()` in `src/lib/shell.mjs`.** It is the only definition of the doctype, `<head>`, nav and footer. `renderFullPage()` calls it for Worker pages; `scripts/gen-layout.mjs` calls it during `npm run build` to *generate* `templates/layouts/base.njk` for Eleventy. Edit the chrome there and nowhere else — `base.njk` carries a `{# GENERATED FILE #}` banner and `test/shell.test.ts` renders both sides and diffs them byte for byte, so a hand-edited layout or a stale committed one fails the suite instead of drifting quietly.
-- **One response path: `src/lib/response.ts`.** Never hand-build `new Response(html, { headers })`. `pageResponse()` for Worker pages, `fragmentResponse()` for `/api/components/*`, and `notFoundPage()` / `forbiddenPage()` / `errorPage()` for failures. `opts.cache` is a closed union defaulting to `'private'`; `errorPage()` takes no argument so an exception message cannot reach the client. Bare-text 4xx/405s, redirects and the two JSON endpoints in `auth.ts` are still plain `new Response` on purpose — converting them would change the wire format, and their shapes are Task 2's subject.
+- **One response path: `src/lib/response.ts`.** Never hand-build `new Response(html, { headers })`. `pageResponse()` for Worker pages, `fragmentResponse()` for `/api/components/*`, and `notFoundPage()` / `forbiddenPage()` / `errorPage()` for failures. `opts.cache` is a closed union defaulting to `'private'`; `errorPage()` takes no argument so an exception message cannot reach the client. Bare-text 4xx/405s, redirects and the two JSON endpoints in `auth.ts` are still plain `new Response` on purpose — converting them would change the wire format.
 - **Routes live in `src/routes.ts`, not `index.ts`.** Add a `{ method, path, handler }` entry to `ROUTES`, without a trailing slash, and add a covering pattern to `run_worker_first` in `wrangler.toml`. `test/assets.test.ts` reads `ROUTES` and fails if you forget either.
 - **Test fixtures that touch conference dates use `dateFromNow()` / `UPCOMING` / `FINISHED` from `test/helpers/seed.ts`, never literal dates.** Archiving compares against the wall clock, so a fixture pinned to a literal date is a test that passes until that date goes by and then fails for a reason nobody will connect to it. That is exactly what happened to the whole `2026-03-01` generation of fixtures when archiving landed.
 - **The database is defined by `migrations/`, and old migrations are immutable.**
@@ -128,8 +109,9 @@ held, was decided and turned on 2026-08-23 — see Architecture Notes below and
   migration that does not produce a working schema.
 - **Share types are post-level and curated.** `src/db/share-types.ts` owns the
   SQL, `src/lib/share-types.ts` owns the picker/badge/option markup that four
-  callers share. The write replaces rather than adds — see the section above for
-  why that is not an arbitrary difference from `tagConference()`. Any new list
+  callers share. The write replaces rather than adds, unlike `tagConference()`:
+  unchecked boxes submit nothing, so an add-only write would make removing a
+  share type silently do nothing (see [`docs/history.md`](docs/history.md)). Any new list
   page that renders badges should use `listShareTypesForPosts()` (one query per
   page), not `listShareTypesForPost()` in a loop.
 - **One route module per concern, and none imports another.** The handler goes in the `src/routes/` module that owns its concern; if two modules need the same thing it belongs in `src/lib/` or `src/db/`, never in a sibling and never in a shared `render.ts` — that grab bag is how `api.ts` reached 1,199 lines. Render helpers stay private to the module that uses them, which is why `/post/:id` and `/api/components/post/:id` share `post-detail.ts` rather than splitting across `posts.ts` and `components.ts`. `test/route-modules.test.ts` fails the build on a cross-module import, on a module over 320 lines, or on a handler exported but not registered.
@@ -140,7 +122,7 @@ held, was decided and turned on 2026-08-23 — see Architecture Notes below and
 - **Route ids:** parse with `parseRouteId()` from `src/lib/params.ts`, never bare `parseInt()`. `parseInt("12abc", 10)` is `12` and passes `Number.isFinite()`, which silently turns a malformed URL into a lookup of a different row.
 - **Handler order:** check the session *before* querying anything keyed on a user-supplied id. Querying first leaks row existence through the status code to callers who are not allowed to see it. The guards do this by construction.
 - **HTMX pattern:** `/api/components/*` return raw HTML fragments, not JSON.
-- **Session auth: one entry point, `src/lib/guards.ts`.** Cookie-based signed tokens, no DB lookup per request. `requireUser(request, env, mode)` for anything that needs a user, `optionalUser()` where anonymous is fine, `requireOwnedPost()` for the post edit/delete family. Never call `getSessionUser()` from a handler — `test/session-access.test.ts` fails the build if you do. The three failure modes (`'page'` 302, `'api'` 401, `'htmx'` 200 + `HX-Redirect`) are documented on the `GuardMode` type and nowhere else; that folklore living in ten handlers instead is what the task fixed. Never trust an id from a form body — `requireOwnedPost()` re-checks ownership against the DB row.
+- **Session auth: one entry point, `src/lib/guards.ts`.** Cookie-based signed tokens, no DB lookup per request. `requireUser(request, env, mode)` for anything that needs a user, `optionalUser()` where anonymous is fine, `requireOwnedPost()` for the post edit/delete family. Never call `getSessionUser()` from a handler — `test/session-access.test.ts` fails the build if you do. The three failure modes (`'page'` 302, `'api'` 401, `'htmx'` 200 + `HX-Redirect`) are documented on the `GuardMode` type and nowhere else. Never trust an id from a form body — `requireOwnedPost()` re-checks ownership against the DB row.
 - **The `.edu` gate is ON.** `RESTRICT_EDU_EMAILS = "true"` in `wrangler.toml`; `isEmailAllowed()` in `src/lib/auth.ts` decides, and both `/api/auth/start` and `/api/auth/callback` apply it so a flip takes effect immediately rather than after in-flight links expire. `EDU_RESTRICTION_MESSAGE` (same file) is the single copy of the refusal text: `/api/auth/start` returns it as the **body of a 403** and `templates/pages/login.njk` shows that body verbatim in its dialog, which is why the static page needs no build-time knowledge of the flag. **403 is the page's signal** — do not add a second 403 to `handleAuthStart` or the wrong words appear in that dialog. It is a strict `.edu` suffix, so `.ac.uk` / `.edu.au` and any university without a `.edu` domain are refused, and it applies to existing users, not just signups. `test/edu-gate.test.ts` holds all of this.
 - **`.dialog` in `templates/style/style.css` is the site's only modal**, a native `<dialog>` so the browser owns the focus trap, Esc-to-close and the backdrop. Only `/login` uses it today (the refusal notice and the mail-delivery notice), but it is a layer-2 system component, so reuse it rather than adding a second overlay.
 - **Escaping:** Worker HTML is string-concatenated. Every interpolated DB or user value must pass through `escapeHtml()`.

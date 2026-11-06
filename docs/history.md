@@ -902,3 +902,21 @@ removes nothing.
 **The rule going forward**, recorded on the function: any new table with a
 foreign key to `posts` needs a line in that batch. Leaving one out does not leave
 an orphan. It makes the post impossible to delete.
+
+## Feedback round 1 — closed
+
+Moved from `CLAUDE.md`.
+
+| # | Item | Status |
+|---|---|---|
+| 1 | "My Posts" page | ✅ `GET /my-posts` |
+| 2 | Search | ✅ Now actually reachable and filtering |
+| 3 | Logout showed `{"ok":true}` | ✅ `HX-Redirect: /` |
+| 4 | City/State instead of Location | ✅ stored as `"City, State"` in `location_address` |
+| 5 | Duplicate-conference notice | ✅ plus real slug-collision handling |
+| 6 | Pre-submit privacy disclaimer | ✅ |
+| 7 | `.edu` email restriction | ✅ Enabled 2026-08-23 — `RESTRICT_EDU_EMAILS = "true"` |
+| 8 | About page bio rewrite | ✅ |
+| 9 | Conference list indentation | ✅ |
+| 10 | Conference name + location + dates | ✅ + subject tags |
+| — | Edit/delete own posts | ✅ `src/routes/posts.ts` |
