@@ -7,7 +7,7 @@ import {
 import { handleCreatePost } from '../src/routes/create-post';
 import { handleMyPosts } from '../src/routes/my-posts';
 import { handlePostPage } from '../src/routes/post-detail';
-import { deletePostAndFlags, getPost, getPostWithConference } from '../src/db/posts';
+import { deletePost, getPost, getPostWithConference } from '../src/db/posts';
 import { getConferenceBySlug } from '../src/db/conferences';
 import { listTagsForConference } from '../src/db/tags';
 import { recordFlag } from '../src/db/moderation';
@@ -35,7 +35,7 @@ import {
  * hand and there were zero handler tests. What they cover is the behaviour that
  * only shows up when HTTP and SQL meet — that a refusal really writes nothing,
  * that an edit really lands on the right row, that a delete really takes the
- * flags with it.
+ * share types with it and leaves the reports behind.
  */
 
 const ctx = () => createExecutionContext();
@@ -446,13 +446,19 @@ describe('handleEditPostSubmit', () => {
 });
 
 describe('handleDeletePostSubmit', () => {
-	it('deletes the post and the flags that reference it', async () => {
+	// Reports used to be deleted with the post, which let a reported author erase
+	// every report by deleting it. Since migration 0007 a report carries its own
+	// copy of the post and survives, still able to say what was reported.
+	it('deletes the post and keeps the reports against it', async () => {
 		const { postId, ownerCookie } = await ownedPost();
 		await recordFlag(testEnv, {
 			postId,
 			reason: 'Spam or advertising',
 			flaggedBy: 'reporter@university.edu',
 			timestamp: ts('2026-02-01'),
+			postTitle: 'Original title',
+			postDescription: 'Original description',
+			postUserId: 1,
 		});
 
 		const response = await handleDeletePostSubmit(
@@ -466,8 +472,8 @@ describe('handleDeletePostSubmit', () => {
 		expect(response.headers.get('Location')).toBe('https://researchroomies.com/my-posts');
 		expect(await getPostWithConference(testEnv, postId)).toBeNull();
 
-		const flags = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM flags').first<{ n: number }>();
-		expect(flags?.n).toBe(0);
+		const flag = await testEnv.DB.prepare('SELECT post_id, post_title FROM flags').first<{ post_id: number; post_title: string }>();
+		expect(flag).toEqual({ post_id: postId, post_title: 'Original title' });
 	});
 
 	// post_share_types references posts(id) with no cascade and D1 enforces
@@ -528,25 +534,17 @@ describe('handleDeletePostSubmit', () => {
 	});
 
 	// Below the guard, at the db layer: every statement in the batch carries the
-	// user_id, so a wrong owner removes nothing — not the post, and not the
-	// reports or share types hanging off it either.
+	// user_id, so a wrong owner removes nothing — not the post, and not the share
+	// types hanging off it either.
 	it('removes nothing at the db layer when the user_id is not the owner’s', async () => {
 		const { postId } = await ownedPost();
 		const stranger = await seedUser('third@university.edu');
 		await setShareTypesForPost(testEnv, postId, ['lodging']);
-		await recordFlag(testEnv, {
-			postId,
-			reason: 'Spam or advertising',
-			flaggedBy: 'reporter@university.edu',
-			timestamp: ts('2026-02-01'),
-		});
 
-		await deletePostAndFlags(testEnv, postId, stranger);
+		await deletePost(testEnv, postId, stranger);
 
 		expect(await getPost(testEnv, postId)).not.toBeNull();
-		const flags = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM flags').first<{ n: number }>();
 		const shares = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM post_share_types').first<{ n: number }>();
-		expect(flags?.n).toBe(1);
 		expect(shares?.n).toBe(1);
 	});
 });

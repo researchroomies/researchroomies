@@ -108,7 +108,7 @@ describe('B. ownership is checked by the guard, not by hand', () => {
 		// session rather than from the request.
 		const source = code('src/routes/posts.ts');
 		expect(source).toMatch(/updatePost\(env, post\.id, sessionUserId\(user\)/);
-		expect(source).toMatch(/deletePostAndFlags\(env, post\.id, sessionUserId\(user\)\)/);
+		expect(source).toMatch(/deletePost\(env, post\.id, sessionUserId\(user\)\)/);
 	});
 });
 

@@ -1,12 +1,14 @@
 import { sendReportEmail } from "../lib/mailgun";
 import { turnstileWidget, verifyTurnstile } from "../lib/turnstile";
 import { escapeHtml } from "../lib/html";
-import { errorPage, notFoundPage, pageResponse } from "../lib/response";
+import { errorPage, forbiddenPage, notFoundPage, pageResponse } from "../lib/response";
 import { parseRouteId } from "../lib/params";
 import { requireUser } from "../lib/guards";
-import { getPost, getPostWithConference } from "../db/posts";
-import { recordFlag } from "../db/moderation";
+import { sessionUserId } from "../lib/session";
+import { getPostWithConference } from "../db/posts";
+import { hasReported, markFlagNotified, recordFlag } from "../db/moderation";
 import type { PostDetail } from "../db/types";
+import type { SessionPayload } from "../lib/auth";
 
 const REPORT_REASONS = [
   "Spam or advertising",
@@ -15,6 +17,43 @@ const REPORT_REASONS = [
   "Off-topic",
   "Other",
 ];
+
+/**
+ * Who may not report this post, and what they are told instead.
+ *
+ * Asked by both the form and its submit, so they cannot disagree. Two refusals:
+ *
+ *   - Your own post. The post page never offers the link to its author, so only
+ *     a typed URL gets here, and a self-report is noise in the admin inbox.
+ *   - A post you have already reported. A second report from the same person
+ *     used to record a second row and send a second email, and adds nothing the
+ *     first did not say.
+ *
+ * Returns null when the report may go ahead.
+ */
+async function reportRefusal(
+  env: Env,
+  post: PostDetail,
+  user: SessionPayload,
+): Promise<Response | null> {
+  if (post.user_id === sessionUserId(user)) {
+    return forbiddenPage("You cannot report your own post.");
+  }
+  if (await hasReported(env, post.id, user.email)) {
+    return pageResponse(
+      "Already reported",
+      `
+      <div class="site-page">
+        <h1>Already reported</h1>
+        <p>You have already reported this post, and your report is with our team. There is no need to send it again.</p>
+        <p><a href="/post/${post.id}" class="btn btn-secondary">Back to post</a></p>
+      </div>
+    `,
+      { cache: "none" },
+    );
+  }
+  return null;
+}
 
 function renderReportForm(env: Env, post: PostDetail): string {
   const optionsHtml = REPORT_REASONS.map(
@@ -84,6 +123,9 @@ export async function handleReportForm(
       return notFoundPage("Post");
     }
 
+    const refusal = await reportRefusal(env, post, guard.value);
+    if (refusal) return refusal;
+
     const content = renderReportForm(env, post);
 
     return pageResponse("Report Post", content);
@@ -136,19 +178,29 @@ export async function handleReportSubmit(
       );
     }
 
-    const post = await getPost(env, parsedPostId);
+    // The full row, not getPost(): the report keeps its own copy of the title,
+    // description and author, because it outlives the post (migration 0007).
+    const post = await getPostWithConference(env, parsedPostId);
 
     if (!post) {
       return notFoundPage("Post");
     }
 
+    // After Turnstile and the lookup, as on the form: refusing is a read, and an
+    // unverified request should not get that far.
+    const refusal = await reportRefusal(env, post, user);
+    if (refusal) return refusal;
+
     const combinedReason = details ? `${reason}: ${details}` : reason;
 
-    await recordFlag(env, {
+    const flagId = await recordFlag(env, {
       postId: parsedPostId,
       reason: combinedReason,
       flaggedBy: user.email,
       timestamp: Math.floor(Date.now() / 1000),
+      postTitle: post.title,
+      postDescription: post.description,
+      postUserId: post.user_id,
     });
 
     // The DB row is the source of truth for moderation; email is a
@@ -160,7 +212,16 @@ export async function handleReportSubmit(
       user.email,
       env,
     );
-    if (!emailSent) {
+    if (emailSent) {
+      // A failure here must not fail the report either. The row stays
+      // un-notified, which only overstates the problem, never hides it.
+      try {
+        await markFlagNotified(env, flagId, Math.floor(Date.now() / 1000));
+      } catch (error) {
+        console.error(`Failed to mark flag ${flagId} as notified:`, error);
+      }
+    } else {
+      // notified_at stays NULL, so the failure is recorded rather than only logged.
       console.error(
         `Failed to send report notification email for post ${parsedPostId}`,
       );

@@ -264,11 +264,21 @@ export interface PostFields {
 	institution: string | null;
 }
 
+/**
+ * A report, with a copy of the post as it stood when it was reported.
+ *
+ * The copy is there because a report outlives its post (migration 0007): once
+ * the author deletes the post, these fields are the only record of what was
+ * reported.
+ */
 export interface NewFlag {
 	postId: number;
 	reason: string;
 	flaggedBy: string;
 	timestamp: number;
+	postTitle: string;
+	postDescription: string;
+	postUserId: number;
 }
 
 /**

@@ -20,7 +20,7 @@
 -- Nothing references `message`, so it can be dropped and renamed without
 -- touching foreign keys. There is still no foreign key to `posts` here, on
 -- purpose: an inquiry is the record of something sent, and it outlives the post
--- it was about (see deletePostAndFlags in src/db/posts.ts).
+-- it was about (see deletePost in src/db/posts.ts).
 --
 -- The NOT NULLs will fail this migration, loudly, if production holds a row
 -- with a missing field. The application has never written one, but check before

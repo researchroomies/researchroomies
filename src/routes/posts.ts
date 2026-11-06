@@ -2,7 +2,7 @@ import { sessionUserId } from "../lib/session";
 import { escapeHtml } from "../lib/html";
 import { errorPage, pageResponse } from "../lib/response";
 import { requireEditablePost, requireOwnedPost } from "../lib/guards";
-import { deletePostAndFlags, updatePost } from "../db/posts";
+import { deletePost, updatePost } from "../db/posts";
 import { setShareTypesForPost } from "../db/share-types";
 import { renderShareTypePicker, submittedShareTypes } from "../lib/share-types";
 import { readAuthorFields, renderAuthorFields } from "../lib/positions";
@@ -163,7 +163,7 @@ export async function handleDeletePostConfirm(
       <div class="page-head">
         <div><h1 class="page-title">Delete post</h1></div>
       </div>
-      <p class="confirm-warning">Are you sure you want to delete <strong>${escapeHtml(post.title)}</strong>? This cannot be undone, and anyone who has written to you about it will have nothing to link back to.</p>
+      <p class="confirm-warning">Are you sure you want to delete <strong>${escapeHtml(post.title)}</strong>? This cannot be undone, and anyone who has written to you about it will have nothing to link back to. If the post has been reported, we keep a copy of it with the report for moderation.</p>
       <form action="/post/${post.id}/delete" method="POST" class="form-actions">
         <button type="submit" class="btn btn-danger">Delete permanently</button>
         <a href="/post/${post.id}" class="btn btn-ghost">Cancel</a>
@@ -189,10 +189,10 @@ export async function handleDeletePostSubmit(
   const { user, post } = guard.value;
 
   try {
-    // Flags reference the post and would otherwise dangle; message rows are
-    // deliberately left alone as the historical record of inquiries sent. Both
-    // rules, and the defence-in-depth user_id, live in deletePostAndFlags().
-    await deletePostAndFlags(env, post.id, sessionUserId(user));
+    // What goes with the post (share types) and what deliberately outlives it
+    // (reports, inquiries), plus the defence-in-depth user_id, all live in
+    // deletePost().
+    await deletePost(env, post.id, sessionUserId(user));
 
     return Response.redirect(new URL("/my-posts", request.url).href, 303);
   } catch (error) {
