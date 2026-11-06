@@ -60,7 +60,8 @@ researchroomies/
 │   │   ├── positions.ts      # Academic positions; resolvePosition() rejects rather than drops
 │   │   ├── share-types.ts    # share_types / post_share_types; the write replaces the set
 │   │   ├── users.ts          # upsertUserOnLogin()
-│   │   └── moderation.ts     # flags + message (both write-only)
+│   │   ├── messages.ts       # message: pending → sent | failed, dedupe, sent-notice check
+│   │   └── moderation.ts     # flags: report, notified_at, already-reported check
 │   └── lib/
 │       ├── archive.ts        # isArchived() – when a conference is over and what that closes
 │       ├── config.ts         # getConfig() – origin, TTLs, sitekey, Mailgun, admin email
@@ -379,7 +380,7 @@ Rules that hold inside `src/db/`:
 `slug (PK), name, sort_order` and `share_slug (FK), post_id (FK)` (composite PK). A join table rather than a column because one post really can offer a room *and* a car seat; contrast `posts.position_slug`, which is a column because a post has exactly one author with exactly one position.
 
 **`flags`** — abuse reports on posts  
-`id, post_id (FK→posts), reason, flagged_by (email), timestamp (unix)`
+`id, post_id, reason, flagged_by (email), timestamp (unix), post_title, post_description, post_user_id, notified_at (unix, NULL = admin email failed)`. **No foreign key to `posts`, on purpose** (migration 0007): a report outlives the post it is about, so deleting a post never deletes its reports, and the `post_*` columns are a copy taken at report time. One report per reader per post is enforced in `handleReportSubmit`, not by an index, because production may already hold duplicates.
 
 **`tags`** — subject categories  
 `slug (PK), name`
@@ -388,7 +389,7 @@ Rules that hold inside `src/db/`:
 `tag_slug (FK→tags), conference_id (FK→conferences)` — composite PK
 
 **`message`** — inquiry messages sent through the site  
-`post_id, sender_email, recipient_email, content, timestamp` — no PK, no foreign key constraints
+`id (PK), post_id, sender_email, recipient_email, content, timestamp, status ('pending' | 'sent' | 'failed')` — no foreign key to `posts`, so inquiries outlive their post. The row is written `'pending'` *before* the email and settled after (migration 0006). Once Mailgun has accepted, the handler reports success no matter what happens next, and a recent identical `pending`/`sent` row makes a retry a no-op. See `src/db/messages.ts`.
 
 **`countries`, `states`, `cities`** — geo reference data (populated externally, not used in the current UI)
 
@@ -648,6 +649,8 @@ The host must include the port; `--local-upstream localhost` yields `http://loca
 | `test/share-types.test.ts` | Share types against a real D1 — every checked box stored, an unchecked one removed on edit, the edit form pre-checked, badges grouped by post |
 | `test/archive.test.ts` | Archiving — a conference stays live through its last day, the create picker omits finished ones and a forged create is still refused, edits and inquiries on a finished one get a 403 (inquiries before the mailer), and the archived notice on each page |
 | `test/edu-gate.test.ts` | The `.edu` gate's HTTP contract — 403 with the message as body, no 403 when the gate is off, refusal before the mailer, and the callback refusing already-issued links |
+| `test/inquiries.test.ts` | Inquiry delivery against a real D1 — each `message` status transition, success reported once Mailgun accepts even if D1 then fails, no resend for a recent `pending`/`sent` duplicate, the `?sent=1` notice only for a real sender |
+| `test/reports.test.ts` | Reports against a real D1 — the snapshot and `notified_at`, a failed admin email still recording the report, one report per reader per post, no reporting your own post, and the report surviving the post's deletion |
 | `test/migrations.test.ts` | The end state of `migrations/*.sql` applied in order — the exact curated subject and share-type lists, including the 0005 renames |
 | `test/positions.test.ts` | Position and institution against a real D1 — `resolvePosition()` rejecting rather than dropping, a refused create writing neither post nor conference, the edit form completing a post that predates the fields, the LEFT JOIN keeping such posts in listings, and the byline on every surface |
 

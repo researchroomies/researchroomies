@@ -903,6 +903,97 @@ removes nothing.
 foreign key to `posts` needs a line in that batch. Leaving one out does not leave
 an orphan. It makes the post impossible to delete.
 
+## Inquiry delivery and reports, reworked — 2026-11-06
+
+This came out of the same implicit-state-machine review as the delete fix
+above. Both features were multi-step requests whose intermediate states could
+be reached but were never recorded. Migrations `0006` and `0007`.
+
+### Inquiries (`0006`, `src/db/messages.ts`)
+
+**The bug.** `handleMessageSend` sent the email and then wrote the `message`
+row. A D1 failure on that write fell through to the catch-all and returned a
+500 for an email that had already gone out. The user, reasonably, retried, and
+the author received the same inquiry twice. The same ordering meant a Mailgun
+outage left no trace at all (the old backlog item "Inquiry persistence depends
+on email success").
+
+**The fix: the row becomes the state machine.** `startMessage()` writes it as
+`'pending'` before the send, and `settleMessage()` moves it to `'sent'` or
+`'failed'` afterwards. It only ever moves a pending row, so a settled row cannot
+be rewritten. The handler then follows two rules:
+
+- *Once Mailgun has accepted, the user is told it was sent.* A failure to settle
+  is logged, and the row stays `'pending'`. The catch-all error page can now only
+  be reached before the send, so its "try again" is always true.
+- *A recent identical inquiry is not sent again.* "Recent" is
+  `INQUIRY_DEDUPE_SECONDS`, 10 minutes. "Identical" means same post, same sender
+  and same content, so a different follow-up message is never swallowed.
+  `'pending'` counts as sent: a pending row is only left behind when the Worker
+  died during the send or just after it, and then the email has most likely gone
+  out. Eric chose this at-most-once behaviour explicitly over resending. A
+  `'failed'` row does not count, so a retry after an outage goes through.
+
+A Mailgun failure now renders a 502 page ("Nothing was sent, so it is safe to try
+again") rather than a bare-text 500.
+
+**Why a rebuild and not `ADD COLUMN`.** The table had no primary key, and
+settling has to name a row. The baseline also declared `STRING` and `NUMBER`,
+which SQLite does not recognise as types. `STRING` gets NUMERIC affinity, so a
+digits-only inquiry was stored as an integer: `0123` came back as `123`. That was
+verified against a populated copy of the 0001–0005 schema. The rebuild CASTs
+existing rows back to text, but the leading zeros already lost cannot be
+recovered.
+
+**The `?sent=1` notice** used to be driven by the URL alone, so anyone could
+craft the link and a reload showed it again. `inquirySent()` in `post-detail.ts`
+now shows it only when the signed-in viewer has a `pending` or `sent` row for
+the post.
+
+### Reports (`0007`, `src/db/moderation.ts`)
+
+**Reports were erasable.** `flags.post_id` had a foreign key to `posts`, so a
+post could only be deleted after its flags, and the delete removed them. A
+reported author could therefore wipe every report against them by deleting the
+post. `0007` rebuilds `flags` without the FK and adds `post_title`,
+`post_description` and `post_user_id`, copied when the report is made, since
+after a delete that copy is the only record of what was reported. Existing rows
+are filled in from a LEFT JOIN, so no row is dropped. `deletePostAndFlags`
+became `deletePost` and no longer touches `flags`. The delete confirmation and
+the privacy page (§5) now say a reported post is kept.
+
+**Duplicate reports.** Each report from the same person on the same post wrote a
+row and emailed the admin again. `hasReported()` now refuses the form and the
+submit with an "Already reported" page. This is a handler check rather than a
+UNIQUE index: production may already hold duplicates, and an index would mean
+deleting some of them. The race it leaves costs one duplicate, which is what
+used to happen every time.
+
+**Self-reports** are refused (403) on the form and on the submit. The post page
+never showed the link to the author, so this only closes the typed-URL path.
+
+**Invisible email failures.** The admin email is still the only way a report
+reaches anyone, and a failed send was only a log line. `notified_at` is now set
+when the send succeeds, so `notified_at IS NULL` is the list of reports nobody
+was told about. Existing rows get their report time as `notified_at`. Whether
+those emails really went out was never recorded, and assuming they did is what
+stops a future retry from re-sending the site's entire report history.
+
+**Not added: a review status** (open/dismissed/actioned). There is no admin
+concept, so nothing could set one. A column nothing writes is the `is_featured`
+problem again: a state machine whose transitions all live outside the code.
+
+### Verification
+
+Two new test files cover every transition and refusal above:
+`test/inquiries.test.ts` and `test/reports.test.ts`. They include the D1
+failure on either side of the send, simulated with a proxied `DB`. The test
+chain only applies migrations to empty tables, so `0006` and `0007` were also
+applied with the `sqlite3` CLI, foreign keys on, to a database seeded through
+`0005`. That run covered a digits-only inquiry, an inquiry about a deleted post
+and a duplicate report. All rows survived with the expected types, and deleting
+the reported post then succeeded.
+
 ## Feedback round 1 — closed
 
 Moved from `CLAUDE.md`.
